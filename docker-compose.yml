@@ -1,0 +1,65 @@
+# FLOP devnet GPU miner: the model backend and the miner worker on one GPU server.
+# Values come from miner.env (docker compose --env-file miner.env ...).
+name: flop-miner
+
+services:
+  backend:
+    image: ${FLOP_BACKEND_IMAGE:?set FLOP_BACKEND_IMAGE in miner.env}
+    restart: unless-stopped
+    environment:
+      MODEL_NAME: ${MODEL_NAME}
+      MODEL_HASH: ${MODEL_HASH}
+      MODEL_DIR: /models/checkpoint
+      TOPLOC_PRECISION: ${TOPLOC_PRECISION}
+      DECODE_POLICY: ${DECODE_POLICY}
+      DECODE_POLICY_HASH: ${DECODE_POLICY_HASH}
+      INFERENCE_API_KEY: ${INFERENCE_API_KEY:?set INFERENCE_API_KEY in miner.env}
+    volumes:
+      - ./models/qwen2.5-0.5b-instruct:/models/checkpoint:ro
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  worker:
+    image: ${FLOP_WORKER_IMAGE:?set FLOP_WORKER_IMAGE in miner.env}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    command: ["--rpc", "${FLOP_RPC}"]
+    working_dir: /data
+    environment:
+      MINER_BACKEND: openai
+      OPENAI_BASE_URL: http://backend:8000/v1
+      INFERENCE_API_KEY: ${INFERENCE_API_KEY}
+      MINER_MODEL: ${MODEL_NAME}
+      OPENROUTER_MODEL_SLUG: ${OPENROUTER_MODEL_SLUG}
+      WORKER_NAME: ${WORKER_NAME}
+      MINER_SIGNER_FILE: /run/flop/signer
+      MINER_ENCLAVE_KEY_FILE: /run/flop/enclave.seed
+      MODEL_HASH: ${MODEL_HASH}
+      MODEL_PRECISION: ${MODEL_PRECISION}
+      MODEL_CHECKPOINT_DIR: /models/checkpoint
+      DECODE_POLICY_HASH: ${DECODE_POLICY_HASH}
+      TOPLOC_ENABLED: "1"
+      TOPLOC_PRECISION: ${TOPLOC_PRECISION}
+      SESSION_PORT: "8645"
+      SESSION_CHAIN: "1"
+      SESSION_AUTH_TOKEN: ${SESSION_AUTH_TOKEN:?set SESSION_AUTH_TOKEN in miner.env}
+      SESSION_PUBLIC_HOST: ${SESSION_PUBLIC_HOST}
+      GHOST_MAILBOX_URL: ${GHOST_MAILBOX_URL}
+      GHOST_KEY_FILE: /data/ghost-x25519.json
+    volumes:
+      - ./signer:/run/flop/signer:ro
+      - ./session-keys/enclave.seed:/run/flop/enclave.seed:ro
+      - ./models/qwen2.5-0.5b-instruct:/models/checkpoint:ro
+      - worker-data:/data
+    ports:
+      - "127.0.0.1:8645:8645"
+
+volumes:
+  worker-data:
