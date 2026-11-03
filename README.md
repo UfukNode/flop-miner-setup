@@ -1,207 +1,208 @@
-# FLOP GPU Miner Kurulum Rehberi (Devnet)
+# FLOP GPU Miner Setup Guide (Devnet)
 
-Bu rehber, Vast.ai üzerinden NVIDIA GPU'lu bir sanal makine (VM) kiralayıp FLOP Devnet'te
-GPU miner kurmak isteyenler için hazırlandı.
+**English** | [Türkçe](Turkce-Kurulum.md)
 
-FLOP, yapay zekâ ajanlarının (agent) yapay zekâ modellerinden cevap almak için ödeme yaptığı
-bir ağdır. Miner'ın makinesi bir modeli GPU üzerinde çalıştırır, ağdan gelen işleri cevaplar
-ve işi gerçekten kayıtlı modelle yaptığını kanıtlayan veriler üretir.
+This guide is for anyone who wants to rent a virtual machine (VM) with an NVIDIA GPU on Vast.ai
+and run a GPU miner on the FLOP Devnet.
 
-Kurulum sonunda sunucuda iki program çalışır:
+FLOP is a network where AI agents pay to get answers from AI models. A miner's machine runs a
+model on its GPU, answers the jobs the network sends, and produces data that proves the work was
+really done with the registered model.
 
-- `backend`: Modeli GPU üzerinde çalıştırır (vLLM ve TOPLOC).
-- `worker`: Ağdan gelen işleri alır, cevapları miner hesabıyla imzalar ve zincire raporlar.
+At the end of the setup, two programs run on the server:
 
-FLOP Devnet 3 Kasım 2026'da herkese açıldı. Miner olmak için başvuru veya davet gerekmez.
-Kayıt için gereken stake'i ağ karşılar, sizin FLOP satın almanız veya yatırmanız gerekmez.
+- `backend`: runs the model on the GPU (vLLM and TOPLOC).
+- `worker`: takes jobs from the network, signs the answers with the miner account and reports
+  them to the chain.
+
+The FLOP Devnet opened to everyone on 3 November 2026. You do not need an application or an
+invitation to become a miner. The network covers the stake needed to register, so you do not
+have to buy or deposit any FLOP.
 
 > [!IMPORTANT]
-> Devnet bir test ağıdır. Ödül vermez, airdrop puanı vermez ve sıfırlanabilir. Buradaki amaç,
-> testnet açıldığında makinenizin ilk günden hazır olmasıdır. FLOP token henüz yoktur:
-> "satın al", "claim et" veya "mint et" diyen her şey dolandırıcılıktır. Seed phrase'inizi
-> kimseyle paylaşmayın. Resmi linklerin tamamı https://flop.finance/official/ sayfasındadır.
+> The devnet is a test network. It gives no rewards and no airdrop points, and it can be reset.
+> The goal here is to have your machine ready on day one when the testnet opens. There is no
+> FLOP token yet: anything that says "buy", "claim" or "mint" is a scam. Never share your seed
+> phrase. All official links are on https://flop.finance/official/.
 
 > [!NOTE]
-> Bu rehberdeki her adım 3 Kasım 2026'da Vast.ai üzerinde iki ayrı Ubuntu 22.04 VM'de, 1x RTX 5090
-> ve 1x RTX 5060 Ti ile baştan sona denendi. İkisi de kalibrasyondan geçti. Görsellerdeki
-> çıktılar RTX 5090 kurulumundan alındı.
+> Every step in this guide was tested end to end on 3 November 2026 on two separate Ubuntu 22.04
+> VMs on Vast.ai, one with 1x RTX 5090 and one with 1x RTX 5060 Ti. Both passed calibration. The
+> outputs in the images come from the RTX 5090 setup.
 
 ---
 
-## Genel Bilgiler
+## Overview
 
-| Bilgi | Değer |
+| Item | Value |
 | --- | --- |
-| Ağ | FLOP Devnet |
-| Rol | GPU Miner (SOFT seviye, ek donanım doğrulaması gerekmez) |
+| Network | FLOP Devnet |
+| Role | GPU Miner (SOFT tier, no extra hardware attestation needed) |
 | Model | Qwen/Qwen2.5-0.5B-Instruct (BF16) |
-| Stake | Ağ karşılar: ilk kayıtta 1.000.000 devnet FLOP |
-| Ödül | Yok (devnet) |
-| Resmi miner dokümanı | https://docs.flop.network/docs/run-miner |
+| Stake | Covered by the network: 1,000,000 devnet FLOP at first registration |
+| Reward | None (devnet) |
+| Official miner docs | https://docs.flop.network/docs/run-miner |
 | Explorer | https://explorer.devnet.flop.network/mining |
 | RPC | `wss://rpc.devnet.flop.network` |
 
 ---
 
-## Sistem Gereksinimleri
+## System Requirements
 
-| Parça | Gereksinim |
+| Part | Requirement |
 | --- | --- |
-| GPU | NVIDIA, en az 16 GB VRAM |
-| Sürücü | CUDA 13.0 destekli NVIDIA sürücüsü (580 veya üzeri) |
-| Makine | İçinde Docker çalışabilen tam sanal makine (VM) veya kendi sunucunuz |
-| Disk | En az 60 GB boş alan. Kurulum sonunda 31 GB kullanıldı |
-| İşletim sistemi | Ubuntu 22.04 veya 24.04 |
-| İnternet | Model programı tek başına 23 GB indirir |
+| GPU | NVIDIA, at least 16 GB VRAM |
+| Driver | NVIDIA driver with CUDA 13.0 support (580 or newer) |
+| Machine | A full virtual machine (VM) that can run Docker, or your own server |
+| Disk | At least 60 GB free. The finished setup used 31 GB |
+| Operating system | Ubuntu 22.04 or 24.04 |
+| Internet | The model program alone is a 23 GB download |
 
-### Denenen Kartlar
+### Tested Cards
 
-| Kart | VRAM | Vast.ai saatlik ücreti | Kalibrasyon |
+| Card | VRAM | Vast.ai price per hour | Calibration |
 | --- | --- | --- | --- |
-| RTX 5060 Ti | 16 GB | Yaklaşık 0,20 dolar | Kabul edildi, 130 GFLOP/s |
-| RTX 5090 | 32 GB | Yaklaşık 0,70 dolar | Kabul edildi, 200 GFLOP/s |
+| RTX 5060 Ti | 16 GB | About $0.20 | Accepted, 130 GFLOP/s |
+| RTX 5090 | 32 GB | About $0.70 | Accepted, 200 GFLOP/s |
 
-En uygun fiyatlı seçenek 16 GB'lık RTX 5060 Ti. Ücretlere disk dahildir, internet ücreti
-ayrıca alınır. Fiyatlar 3 Kasım 2026'daki fiyatlardır ve makineye göre değişir.
+The most affordable option is the 16 GB RTX 5060 Ti. The prices include disk; internet traffic
+is charged separately. These are the prices on 3 November 2026 and they vary by machine.
 
-Yukarıdaki gereksinimleri karşılayan başka kartlarla ve farklı sağlayıcılarla da
-kurabilirsiniz. Vast.ai kullanacaksanız **VM** etiketli şablonu seçin. Normal şablonlarda
-Docker çalışmaz.
+You can also use other cards and other providers that meet the requirements above. If you use
+Vast.ai, pick a template with the **VM** tag. Docker does not run on the normal templates.
 
 ---
 
-## 1. SSH Anahtarı Oluşturma
+## 1. Create an SSH Key
 
-Sunucuya kendi bilgisayarınızdan SSH ile bağlanacağız. Bunun için bir SSH anahtarı gerekir.
+You will connect to the server from your own computer over SSH. For that you need an SSH key.
 
 ### Windows:
 
-- Önce WSL kurulum rehberimi takip edin: https://x.com/UfukDegen/status/1944066889346429338
-- WSL kurulumunu bitirdikten sonra aşağıdaki komutları WSL terminalinde çalıştırın.
+- First, follow my WSL installation guide: https://x.com/UfukDegen/status/1944066889346429338
+- After completing the WSL setup, run the commands below in the WSL terminal.
 
 ### macOS:
 
-- Aşağıdaki komutları Terminal uygulamasında çalıştırın.
+- Run the commands below in the Terminal app.
 
 ```bash
 ssh-keygen -t ed25519 -C "vast-flop"
 ```
 
-- Sorulara Enter'a basarak varsayılan cevapları verin.
-- Daha önce oluşturduğunuz bir anahtar varsa `Overwrite (y/n)?` sorusuna `n` yazın ve mevcut
-  anahtarınızı kullanın.
+- Press Enter to accept the default answers.
+- If you already have a key, answer `n` to `Overwrite (y/n)?` and use your existing key.
 
-Açık anahtarınızı ekrana yazdırın:
+Print your public key:
 
 ```bash
 cat ~/.ssh/id_ed25519.pub
 ```
 
-`ssh-ed25519` ile başlayan satırın tamamını kopyalayın. Bu satır gizli değildir, Vast.ai'ye
-bunu vereceğiz. Aynı klasördeki `id_ed25519` dosyasını (sonunda `.pub` olmayan) ise kimseyle
-paylaşmayın.
+Copy the whole line that starts with `ssh-ed25519`. This line is not secret; it is what you give
+to Vast.ai. Never share the `id_ed25519` file in the same folder (the one without `.pub`).
 
 ---
 
-## 2. Vast.ai Hesabı ve SSH Anahtarını Ekleme
+## 2. Vast.ai Account and SSH Key
 
-1. [Vast.ai kayıt ve giriş sayfasını](https://cloud.vast.ai/?ref_id=222215) açın ve hesabınıza
-   giriş yapın.
-2. Sol menüden **Billing** bölümüne girin ve **Add Credit** ile bakiye ekleyin.
+1. Open the [Vast.ai sign up and login page](https://cloud.vast.ai/?ref_id=222215) and sign in.
+2. Go to **Billing** in the left menu and add credit with **Add Credit**.
 
-![Vast.ai bakiye ekleme](assets/01-vast-billing.png)
+![Adding credit on Vast.ai](assets/01-vast-billing.png)
 
-3. Sol menüden **Keys** bölümüne girin.
-4. **SSH Keys** sekmesinde **+ New** butonuna tıklayın.
-5. Kopyaladığınız `ssh-ed25519 ...` satırını kutuya yapıştırın ve **Save** butonuna basın.
+3. Go to **Keys** in the left menu.
+4. On the **SSH Keys** tab, click **+ New**.
+5. Paste the `ssh-ed25519 ...` line you copied and click **Save**.
 
-![Vast.ai SSH anahtarı ekleme](assets/02-vast-ssh-key.png)
+![Adding an SSH key on Vast.ai](assets/02-vast-ssh-key.png)
 
-Hesaba eklenen anahtarlar, bundan sonra kiraladığınız bütün sunuculara otomatik olarak eklenir.
-Anahtarı sunucuyu kiraladıktan sonra eklerseniz o sunucuya kendiliğinden eklenmez.
+Keys on your account are added automatically to every server you rent from now on. A key added
+after a server is rented is not added to that server.
 
 ---
 
-## 3. VM Kiralama
+## 3. Rent a VM
 
-1. Sol menüden **Search** bölümüne girin.
-2. Soldaki şablon kutusunda **Change Template** butonuna tıklayın.
-3. Sağ üstteki **Tags** kısmından **VM** etiketini seçin.
-4. **Ubuntu 22.04 VM** şablonunun altındaki ▶ butonuna tıklayın.
+1. Go to **Search** in the left menu.
+2. In the template box on the left, click **Change Template**.
+3. Under **Tags** at the top right, choose the **VM** tag.
+4. Click the ▶ button under the **Ubuntu 22.04 VM** template.
 
-![VM şablonu seçimi](assets/03-vast-template-vm.png)
+![Choosing the VM template](assets/03-vast-template-vm.png)
 
-5. Üstteki filtrelerden **On-Demand**, GPU olarak **RTX 5060 Ti** veya **RTX 5090** ve bölgeyi
-   seçin.
-6. Makinenin `Max CUDA` değerinin `13.0` veya üzeri olduğunu kontrol edin.
-7. Fiyatın üzerine gelerek saatlik toplam ücreti görün.
+5. In the filters at the top, choose **On-Demand**, **RTX 5060 Ti** or **RTX 5090** as the GPU,
+   and your region.
+6. Check that the machine's `Max CUDA` value is `13.0` or higher.
+7. Hover over the price to see the total hourly cost.
 
-![Fiyat dökümü](assets/05-vast-price.png)
+![Price breakdown](assets/05-vast-price.png)
 
-8. Uygun makinede **RENT** butonuna basın.
+8. Click **RENT** on a suitable machine.
 
-![RTX 5090 VM kiralama](assets/04-vast-rtx5090-vm.png)
+![Renting an RTX 5090 VM](assets/04-vast-rtx5090-vm.png)
 
-Makine seçerken şu değerlere bakın:
+When choosing a machine, look at:
 
-- GPU modeli ve adedi
-- `Max CUDA` değeri (13.0 veya üzeri)
-- Güvenilirlik oranı (Reliability)
-- Saatlik toplam ücret ve internet ücreti
-- Kiralanabilecek maksimum süre (Max Duration)
+- The GPU model and count
+- The `Max CUDA` value (13.0 or higher)
+- The reliability rate (Reliability)
+- The total hourly cost and the internet cost
+- The longest rental time (Max Duration)
 
 > [!IMPORTANT]
-> **Stop**, GPU ücretini durdurur fakat disk ücreti devam eder. **Destroy** ise sunucuyu ve
-> içindeki bütün dosyaları kalıcı olarak siler. Bakiyeniz biterse sunucu durur.
+> **Stop** pauses the GPU cost, but the disk cost continues. **Destroy** deletes the server and
+> all its files for good. If your credit runs out, the server stops.
 
 ---
 
-## 4. Sunucuya Bağlanma
+## 4. Connect to the Server
 
-1. Sol menüden **Instances** bölümüne girin.
-2. Sunucunun açılmasını bekleyin. Vast, VM'lerin açılmasının 30 dakikayı bulabileceğini
-   söylüyor. Testte RTX 5090 sunucusu 2 dakika içinde açıldı.
-   Sunucu uzun süre açılmazsa veya durumu `exited` olursa onu **Destroy** ile silin ve başka
-   bir makine kiralayın. İlk denediğim RTX 5060 Ti hiç açılmadı, ikincisi sorunsuz açıldı.
-3. Sunucu açılınca **>_Connect** butonuna tıklayın.
+1. Go to **Instances** in the left menu.
+2. Wait for the server to start. Vast says a VM can take up to 30 minutes to start. In the test,
+   the RTX 5090 server started within 2 minutes.
+   If the server does not start for a long time, or its status becomes `exited`, delete it with
+   **Destroy** and rent another machine. The first RTX 5060 Ti I tried never started; the second
+   one started without problems.
+3. When the server is up, click the **>_Connect** button.
 
-![Vast.ai Connect butonu](assets/06-vast-instance.png)
+![The Vast.ai Connect button](assets/06-vast-instance.png)
 
-4. **Direct SSH Connect** satırındaki komutu kopyalayın.
+4. Copy the command on the **Direct SSH Connect** line.
 
-![SSH bağlantı komutu](assets/07-vast-ssh-command.png)
+![The SSH connect command](assets/07-vast-ssh-command.png)
 
-5. Komutu kendi bilgisayarınızın terminaline yapıştırın. Sondaki `-L 8080:localhost:8080`
-   kısmı gerekli değildir, silebilirsiniz.
+5. Paste the command into your own computer's terminal. The `-L 8080:localhost:8080` part at the
+   end is not needed; you can delete it.
 
 ```bash
-ssh -p PORT root@SUNUCU_IP
+ssh -p PORT root@SERVER_IP
 ```
 
-- `PORT` ve `SUNUCU_IP` kısımları Vast'ın verdiği komutta yazar.
-- İlk bağlantıda `Are you sure you want to continue connecting (yes/no)?` sorusuna `yes` yazın.
+- `PORT` and `SERVER_IP` are in the command Vast gives you.
+- On the first connection, answer `yes` to `Are you sure you want to continue connecting (yes/no)?`.
 
-Bundan sonraki bütün komutlar sunucuda çalıştırılır.
+From here on, every command runs on the server.
 
 ---
 
-## 5. GPU ve Docker Kontrolü
+## 5. Check the GPU and Docker
 
 ```bash
 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
 docker --version && docker compose version
 ```
 
-Kartınızın adını, `580` veya üzeri bir sürücü sürümünü ve Docker sürümlerini görmelisiniz:
+You should see your card's name, a driver version of `580` or newer, and the Docker versions:
 
-![GPU ve Docker kontrolü](assets/08-term-gpu.png)
+![Checking the GPU and Docker](assets/08-term-gpu.png)
 
 ---
 
-## 6. NVIDIA Container Toolkit Kurulumu
+## 6. Install the NVIDIA Container Toolkit
 
-Vast VM'de Docker hazır gelir, fakat ekran kartını Docker'a bağlayan araç eksiktir. Bu araç
-olmadan programlar GPU'yu göremez ve şu hatayı alırsınız:
+Docker comes ready on a Vast VM, but the tool that connects the graphics card to Docker is
+missing. Without it the programs cannot see the GPU and you get this error:
 `could not select device driver "" with capabilities: [[gpu]]`
 
 ```bash
@@ -210,40 +211,40 @@ nvidia-ctk runtime configure --runtime=docker
 systemctl restart docker
 ```
 
-GPU'nun Docker içinden göründüğünü test edin:
+Test that the GPU is visible inside Docker:
 
 ```bash
 docker run --rm --gpus all nvidia/cuda:13.0.1-base-ubuntu22.04 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
 ```
 
-Son satırda kartınızın adını görüyorsanız bu adım tamamdır:
+If the last line shows your card's name, this step is done:
 
-![NVIDIA Container Toolkit kurulumu](assets/09-term-toolkit.png)
+![Installing the NVIDIA Container Toolkit](assets/09-term-toolkit.png)
 
 ---
 
-## 7. Rehber Dosyalarını İndirme ve Ayar Dosyasını Hazırlama
+## 7. Download the Guide Files and Prepare the Settings
 
 ```bash
 cd ~
-git clone https://github.com/UfukNode/FLOP-Miner-Kurulum.git
+git clone https://github.com/UfukNode/flop-miner-setup.git
 mkdir -p /opt/flop-miner/models
-cp FLOP-Miner-Kurulum/docker-compose.yml FLOP-Miner-Kurulum/miner.env.example FLOP-Miner-Kurulum/sponsor.mjs /opt/flop-miner/
+cp flop-miner-setup/docker-compose.yml flop-miner-setup/miner.env.example flop-miner-setup/sponsor.mjs /opt/flop-miner/
 cd /opt/flop-miner
 install -m 600 miner.env.example miner.env
 ```
 
-Ayar dosyasındaki gizli değerleri oluşturun ve miner'ınıza bir isim verin:
+Create the secret values in the settings file and give your miner a name:
 
 ```bash
 sed -i "s/^INFERENCE_API_KEY=.*/INFERENCE_API_KEY=$(openssl rand -hex 32)/" miner.env
 sed -i "s/^SESSION_AUTH_TOKEN=.*/SESSION_AUTH_TOKEN=$(openssl rand -hex 32)/" miner.env
-sed -i "s/^WORKER_NAME=.*/WORKER_NAME=miner-ismi-girin/" miner.env
+sed -i "s/^WORKER_NAME=.*/WORKER_NAME=your-miner-name/" miner.env
 ```
 
-- `miner-ismi-girin` yerine miner'ınız için bir isim yazın. Harf, rakam ve tire kullanın.
+- Replace `your-miner-name` with a name for your miner. Use letters, numbers and dashes.
 
-Sonraki adımlarda kullanacağımız iki kısayolu ekleyin:
+Add the two shortcuts the next steps use:
 
 ```bash
 cat >> ~/.bashrc <<'EOF'
@@ -254,28 +255,30 @@ EOF
 source ~/.bashrc
 ```
 
-- `compose`: miner programlarını (backend ve worker) yönetir.
-- `flop`: FLOP'un resmi komut aracıdır. `/opt/flop-miner` klasörü bu aracın içinde `/work`
-  olarak görünür.
+- `compose`: manages the miner programs (backend and worker).
+- `flop`: FLOP's official command line tool. The `/opt/flop-miner` folder appears inside it as
+  `/work`.
 
 ---
 
-## 8. FLOP Programlarını İndirme
+## 8. Download the FLOP Programs
 
 ```bash
 docker pull "$FLOP_CLI"
 compose pull
 ```
 
-Model programı (`miner-vllm-toploc`) 23 GB'tır. Testte üç programın inmesi 3,5 dakika sürdü.
+The model program (`miner-vllm-toploc`) is 23 GB. In the test, the three programs took 3.5
+minutes to download.
 
-![FLOP programları](assets/10-term-images.png)
+![The FLOP programs](assets/10-term-images.png)
 
 ---
 
-## 9. Miner Cüzdanı Oluşturma
+## 9. Create the Miner Wallet
 
-Miner'ın kendine ait bir hesabı olur. İşlerin imzası ve stake bu hesaba bağlıdır.
+The miner has an account of its own. The signatures on its work and its stake belong to this
+account.
 
 ```bash
 cd /opt/flop-miner
@@ -286,16 +289,16 @@ chmod 600 /opt/flop-miner/signer
 jq -r .address /root/miner-key.json
 ```
 
-Son komut miner adresinizi yazar (`5` ile başlar). Bu adresi bir yere kaydedin.
+The last command prints your miner address (it starts with `5`). Save this address somewhere.
 
-24 kelimeyi bir kez ekrana yazdırıp kağıda not edin, ardından geçici dosyayı silin:
+Print the 24 words once and write them down on paper, then delete the temporary file:
 
 ```bash
 cat /opt/flop-miner/signer
 rm /root/miner-key.json
 ```
 
-Oturum anahtarını oluşturun:
+Create the session key:
 
 ```bash
 install -d -m 700 /opt/flop-miner/session-keys
@@ -303,58 +306,58 @@ sh -c 'umask 077; openssl rand -hex 32 > /opt/flop-miner/session-keys/enclave.se
 ```
 
 > [!CAUTION]
-> `signer` dosyası miner hesabınızın kendisidir. Kimseye göndermeyin, ekran görüntüsünü
-> almayın ve GitHub'a yüklemeyin. Worker bu dosyayı bulamazsa FLOP'un herkese açık test
-> hesabı `//Alice` ile çalışmaya kalkar. 14. adımda log'daki `Signer:` satırında kendi
-> adresinizi gördüğünüzden emin olun.
+> The `signer` file is your miner account itself. Never send it to anyone, never take a
+> screenshot of it and never upload it to GitHub. If the worker cannot find this file, it tries
+> to run with FLOP's public test account `//Alice`. In step 14, make sure the `Signer:` line in
+> the log shows your own address.
 
 ---
 
-## 10. Stake Sponsoru ile Kayıt
+## 10. Register with the Stake Sponsor
 
-FLOP, devnet'te miner stake'ini kendisi karşılar. Bu komut miner hesabınızla bir istek
-imzalar ve FLOP'un sponsor servisine gönderir. Sponsor hesabınızı miner olarak kaydeder ve
-stake'i yatırır.
+On the devnet, FLOP covers the miner stake itself. This command signs a request with your miner
+account and sends it to FLOP's sponsor service. The sponsor registers your account as a miner and
+deposits the stake.
 
 ```bash
 docker run --rm -v /opt/flop-miner:/work --entrypoint node "$FLOP_CLI" /work/sponsor.mjs
 ```
 
-`HTTP 200` ve `"success":true` görüyorsanız kayıt tamamdır. Ağ hesabınıza 1.000.000 test FLOP
-stake ve işlem ücretleri için 250 test FLOP yatırır:
+If you see `HTTP 200` and `"success":true`, the registration is done. The network deposits
+1,000,000 test FLOP as stake and 250 test FLOP for transaction fees into your account:
 
-![Stake sponsoru](assets/12-term-sponsor.png)
+![The stake sponsor](assets/12-term-sponsor.png)
 
-- Kendiniz `flop miner register` çalıştırmayın. Sponsor sizi zaten kaydeder.
-- `429` ve `automatic miner sponsorship is full` mesajı sponsorun o an dolu olduğunu gösterir.
-  Aynı anda en fazla 3 sponsorlu miner kalibrasyon bekleyebilir. Biri kalibre olunca yer
-  açılır. Bir süre sonra aynı komutu tekrar çalıştırın. `503` gelirse de bir süre sonra
-  tekrar deneyin.
-- Hızlı kartlar daha fazla stake ister. Aynı komutu bir kez daha çalıştırırsanız sponsor
-  stake'i en fazla 2.000.000 test FLOP'a tamamlar. Testte RTX 5060 Ti'ye 1.000.000 yetti,
-  RTX 5090 için ikinci istek gerekti.
+- Do not run `flop miner register` yourself. The sponsor already registers you.
+- `429` with the message `automatic miner sponsorship is full` means the sponsor is full right
+  now. At most 3 sponsored miners can wait for calibration at the same time. A slot opens when one
+  of them calibrates. Run the same command again after a while. If you get `503`, also try again
+  after a while.
+- Faster cards need more stake. If you run the same command once more, the sponsor tops the stake
+  up to at most 2,000,000 test FLOP. In the test, 1,000,000 was enough for the RTX 5060 Ti; the
+  RTX 5090 needed the second request.
 
 ---
 
-## 11. Modeli İndirme ve Doğrulama
+## 11. Download and Verify the Model
 
-FLOP'un aracı modeli indirir ve dosyaları zincirdeki kayıtla karşılaştırır. Kayıtla birebir
-aynı değilse dosyaları yazmaz.
+FLOP's tool downloads the model and compares the files with the record on the chain. If they do
+not match the record exactly, it does not write the files.
 
 ```bash
 flop --network devnet --rpc wss://rpc.devnet.flop.network model fetch 0x1a52c1abe781db051e70ae357f72bb70161ca0c092df0b618f22a9292ba63306 --precision BF16 --output-dir /work/models/qwen2.5-0.5b-instruct --json
 ```
 
-`"ok": true` ve `computed_root` değerinin model hash'iyle aynı olduğunu görmelisiniz:
+You should see `"ok": true` and a `computed_root` value equal to the model hash:
 
-![Model doğrulama](assets/11-term-model.png)
+![Verifying the model](assets/11-term-model.png)
 
-İlk denemede `MODEL_VERIFICATION_FAILED` ve `fetch failed` hatası alırsanız aynı komutu tekrar
-çalıştırın. Testte ilk deneme bu hatayı verdi, ikinci deneme başarılı oldu.
+If the first attempt fails with `MODEL_VERIFICATION_FAILED` and `fetch failed`, run the same
+command again. In the test, the first attempt gave this error and the second one worked.
 
 ---
 
-## 12. Backend'i Başlatma
+## 12. Start the Backend
 
 ```bash
 cd /opt/flop-miner
@@ -362,29 +365,27 @@ compose up -d backend
 compose logs -f backend
 ```
 
-Logda `MODEL_DIR reproduces MODEL_HASH` ve `Uvicorn running` satırlarını gördüğünüzde model
-GPU'ya yüklenmiş demektir. Loglardan `CTRL + C` ile çıkabilirsiniz, program çalışmaya devam
-eder.
+When the log shows the `MODEL_DIR reproduces MODEL_HASH` and `Uvicorn running` lines, the model
+is loaded on the GPU. Leave the logs with `CTRL + C`; the program keeps running.
 
-![Backend logları](assets/13-term-backend.png)
+![The backend logs](assets/13-term-backend.png)
 
-Backend'in sağlık kontrolünü yapın:
+Run the backend health check:
 
 ```bash
 compose exec -T backend python3 -c 'import os, json, urllib.request as u; r=json.loads(u.urlopen(u.Request("http://127.0.0.1:8000/health", headers={"Authorization": "Bearer " + os.environ["INFERENCE_API_KEY"]})).read()); print(json.dumps({k: r.get(k) for k in ("model_identity","model_hash","precision","decode_policy_hash","image")}, indent=2))'
 ```
 
-`model_identity` değeri `measured` olmalı ve model hash'i 11. adımdakiyle aynı olmalıdır:
+`model_identity` should be `measured` and the model hash should match the one in step 11:
 
-![Backend sağlık kontrolü](assets/14-term-health.png)
+![The backend health check](assets/14-term-health.png)
 
 ---
 
-## 13. HTTPS Tünel Kurulumu
+## 13. Set Up the HTTPS Tunnel
 
-Ağın miner'ınıza ulaşabilmesi için bir HTTPS adresi gerekir. Vast'ta 80 ve 443 portlarını
-doğrudan açamadığımız için Cloudflare'in ücretsiz tünelini kullanacağız. Hesap açmanız
-gerekmez.
+The network needs an HTTPS address to reach your miner. Ports 80 and 443 cannot be opened
+directly on Vast, so we use Cloudflare's free tunnel. You do not need an account.
 
 ```bash
 cd ~
@@ -392,7 +393,7 @@ curl -fsSL -o cloudflared.deb https://github.com/cloudflare/cloudflared/releases
 dpkg -i cloudflared.deb
 ```
 
-Tüneli sunucu yeniden başlasa bile çalışacak bir servis olarak kurun:
+Install the tunnel as a service that keeps running even when the server restarts:
 
 ```bash
 sudo tee /etc/systemd/system/flop-tunnel.service > /dev/null <<'EOF'
@@ -413,15 +414,15 @@ systemctl daemon-reload
 systemctl enable --now flop-tunnel
 ```
 
-Birkaç saniye bekleyip tünel adresinizi görün:
+Wait a few seconds and see your tunnel address:
 
 ```bash
 journalctl -u flop-tunnel --no-pager | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1
 ```
 
-![Tünel adresi](assets/15-term-tunnel.png)
+![The tunnel address](assets/15-term-tunnel.png)
 
-Adresi ayar dosyasına yazın:
+Write the address into the settings file:
 
 ```bash
 H=$(journalctl -u flop-tunnel --no-pager | grep -o '[a-z0-9-]*\.trycloudflare\.com' | tail -1)
@@ -430,12 +431,12 @@ grep '^SESSION_PUBLIC_HOST=' /opt/flop-miner/miner.env
 ```
 
 > [!NOTE]
-> Bu ücretsiz tünelin adresi tünel yeniden başladığında değişir. Değişirse son üç komutu
-> tekrar çalıştırın ve worker'ı `compose up -d worker` ile yeniden başlatın.
+> This free tunnel gets a new address whenever the tunnel restarts. If it changes, run the last
+> three commands again and restart the worker with `compose up -d worker`.
 
 ---
 
-## 14. Worker'ı Başlatma
+## 14. Start the Worker
 
 ```bash
 cd /opt/flop-miner
@@ -443,287 +444,286 @@ compose up -d worker
 compose logs -f worker
 ```
 
-![Worker logları](assets/16-term-worker.png)
+![The worker logs](assets/16-term-worker.png)
 
-Logda şu satırları kontrol edin:
+Check these lines in the log:
 
-| Satır | Anlamı |
+| Line | Meaning |
 | --- | --- |
-| `Signer: 5...` | 9. adımda oluşturduğunuz miner adresi olmalı |
-| `[ghost] published ghost key` | Ağın test işlerini göndereceği anahtar yayınlandı |
-| `model-gate OK` | Model, zincirdeki kayıtla aynı |
-| `Session host listening on :8645` | Worker istekleri dinliyor |
-| `Endpoint ad (...): published to the mailbox` | Tünel adresiniz ağa duyuruldu |
-| `[ghost] answered task ...` | Ağın gönderdiği test işleri cevaplanıyor |
+| `Signer: 5...` | Must be the miner address you created in step 9 |
+| `[ghost] published ghost key` | The key the network sends test jobs to is published |
+| `model-gate OK` | The model matches the record on the chain |
+| `Session host listening on :8645` | The worker is listening for requests |
+| `Endpoint ad (...): published to the mailbox` | Your tunnel address is announced to the network |
+| `[ghost] answered task ...` | The test jobs the network sends are being answered |
 
 ---
 
-## 15. Kontrol Etme
+## 15. Check Everything
 
-Kendi bilgisayarınızdan tünel adresinize bir istek gönderin:
-
-```bash
-curl -s -o /dev/null -w "%{http_code}\n" https://TUNEL-ADRESINIZ/session/info
-```
-
-`401` cevabı normaldir. Adres çalışıyor ve şifresiz isteği reddediyor demektir.
-
-Miner'ın zincirdeki durumuna bakın:
+Send a request to your tunnel address from your own computer:
 
 ```bash
-flop --network devnet --rpc wss://rpc.devnet.flop.network miner status MINER_ADRESINIZ
+curl -s -o /dev/null -w "%{http_code}\n" https://YOUR-TUNNEL-ADDRESS/session/info
 ```
 
-`registered` değeri `true` olmalı ve `stake` kısmında sponsorun yatırdığı stake görünmelidir:
+A `401` answer is normal. It means the address works and refuses requests without a key.
 
-![Miner durumu](assets/17-term-status.png)
+Check the miner's status on the chain:
 
-Explorer'da hesabınızı açın:
+```bash
+flop --network devnet --rpc wss://rpc.devnet.flop.network miner status YOUR_MINER_ADDRESS
+```
+
+`registered` should be `true` and `stake` should show the stake the sponsor deposited:
+
+![The miner status](assets/17-term-status.png)
+
+Open your account on the explorer:
 
 ```text
-https://explorer.devnet.flop.network/account/MINER_ADRESINIZ
+https://explorer.devnet.flop.network/account/YOUR_MINER_ADDRESS
 ```
 
-![Explorer hesap sayfası](assets/19-explorer-account.png)
+![The explorer account page](assets/19-explorer-account.png)
 
 ---
 
-## 16. GPU Bilgisini Zincire Yazma (İsteğe Bağlı)
+## 16. Declare the GPU on Chain (Optional)
 
-Explorer'ın miner listesinde kartınızın görünmesi için GPU bilgisini zincire yazabilirsiniz.
-Bunun için önce miner anahtarınızı şifreli bir dosyaya aktarın. Bir şifre belirleyin ve
-yazdığınız şifreyi unutmayın:
+To have your card show up in the explorer's miner list, you can write the GPU information to the
+chain. First, put your miner key into an encrypted file. Choose a password and do not forget it:
 
 ```bash
 cd /opt/flop-miner
-read -r -s -p 'Keystore şifresi: ' FLOP_KEY_PASSWORD && export FLOP_KEY_PASSWORD && echo
+read -r -s -p 'Keystore password: ' FLOP_KEY_PASSWORD && export FLOP_KEY_PASSWORD && echo
 MINER_SECRET="$(cat /opt/flop-miner/signer)" docker run --rm --network host -e MINER_SECRET -e FLOP_KEY_PASSWORD -v /opt/flop-miner:/work "$FLOP_CLI" keys import --type sr25519 --secret-env MINER_SECRET --out /work/miner.json --password-env FLOP_KEY_PASSWORD
 ```
 
-GPU bilgisini yazın:
+Write the GPU information:
 
 ```bash
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits | docker run -i --rm --network host -e FLOP_KEY_PASSWORD -v /opt/flop-miner:/work "$FLOP_CLI" --network devnet --rpc wss://rpc.devnet.flop.network --keystore /work/miner.json --password-env FLOP_KEY_PASSWORD miner declare-gpu --nvidia-smi -
 ```
 
-![GPU bildirimi](assets/18-term-declare-gpu.png)
+![Declaring the GPU](assets/18-term-declare-gpu.png)
 
-İşlem ücreti sponsorun verdiği 250 FLOP'tan düşer. Testte ücret 0,0024 FLOP oldu.
+The transaction fee comes out of the 250 FLOP the sponsor gave. In the test, the fee was 0.0024
+FLOP.
 
 ---
 
-## 17. Kalibrasyonu Takip Etme
+## 17. Follow the Calibration
 
-Ağ, miner'ınızın gerçekten ne kadar iş yapabildiğini ölçmek için ona test işleri gönderir
-(logdaki `[ghost] answered task` satırları). Yeterli sayıda iş doğrulanınca worker şu satırı
-yazar:
+To measure how much work your miner can really do, the network sends it test jobs (the
+`[ghost] answered task` lines in the log). When enough jobs are verified, the worker writes this
+line:
 
 ```text
 [calibration] ... cap accepted: ... GFLOP/s from ... verified jobs
 ```
 
-Zincirdeki güncel kurala göre bunun için en az 600 blokluk (yaklaşık 11 dakika) bir süre
-içinde en az 64 doğrulanmış iş gerekir. Ölçüm haftada bir yenilenir.
+Under the current rule on the chain, this needs at least 64 verified jobs within a window of at
+least 600 blocks (about 11 minutes). The measurement is renewed once a week.
 
 ```bash
 compose logs worker | grep -E "answered task|calibration" | tail
-flop --network devnet --rpc wss://rpc.devnet.flop.network miner status MINER_ADRESINIZ --json | jq .calibration
+flop --network devnet --rpc wss://rpc.devnet.flop.network miner status YOUR_MINER_ADDRESS --json | jq .calibration
 ```
 
-Testte kalibrasyon, worker açıldıktan yaklaşık 12 dakika sonra kabul edildi: RTX 5090'da 621
-blok içinde 64 doğrulanmış iş ve 200 GFLOP/s, RTX 5060 Ti'de 618 blok içinde 64 doğrulanmış iş
-ve 130 GFLOP/s. `calibration` alanı `null` yerine bu bilgileri gösteriyorsa
-miner'ınız hazırdır:
+In the test, calibration was accepted about 12 minutes after the worker started: 64 verified
+jobs within 621 blocks and 200 GFLOP/s on the RTX 5090, and 64 verified jobs within 618 blocks
+and 130 GFLOP/s on the RTX 5060 Ti. If the `calibration` field shows these values instead of
+`null`, your miner is ready:
 
-![Kalibrasyon kabul edildi](assets/20-term-calibration.png)
+![Calibration accepted](assets/20-term-calibration.png)
 
-Explorer'da **PoI** menüsünden **Mining** sayfasına girip **Calibration** sekmesini açtığınızda
-miner'ınızı `Active` olarak görürsünüz: https://explorer.devnet.flop.network/mining
+On the explorer, open the **Mining** page from the **PoI** menu and the **Calibration** tab, and
+you will see your miner as `Active`: https://explorer.devnet.flop.network/mining
 
-![Explorer kalibrasyon listesi](assets/21-explorer-calibration.png)
+![The explorer calibration list](assets/21-explorer-calibration.png)
 
 > [!IMPORTANT]
-> Worker'ı açık tutun. Ağın gönderdiği bir test işi 600 blok içinde cevaplanmazsa süresi dolar
-> ve miner'ın stake'inden kesinti (slash) yapılır.
+> Keep the worker running. If a test job from the network is not answered within 600 blocks, it
+> expires and the miner's stake is cut (slashed).
 
-Kalibrasyon sırasında stake yetmezse 10. adımdaki sponsor komutunu tekrar çalıştırın.
+If the stake runs short during calibration, run the sponsor command from step 10 again.
 
-Ücretli işler (ajanların gerçek istekleri) dışarıdan katılan miner'lara henüz açılmadı. FLOP
-dokümanı bunun açıldığında duyurulacağını yazıyor. Kayıt ve kalibrasyon bugün çalışıyor.
+Paid jobs (real requests from agents) are not open to outside miners yet. The FLOP docs say this
+will be announced when it opens. Registration and calibration work today.
 
 ---
 
-## Kullanacağınız Komutlar
+## Useful Commands
 
-### Worker logunu izle
+### Follow the worker log
 
 ```bash
 compose logs -f worker
 ```
 
-### Backend logunu izle
+### Follow the backend log
 
 ```bash
 compose logs -f backend
 ```
 
-### Programların durumu
+### Status of the programs
 
 ```bash
 compose ps
 ```
 
-### Worker'ı yeniden başlat
+### Restart the worker
 
 ```bash
 compose restart worker
 ```
 
-### Programları durdur ve başlat
+### Stop and start the programs
 
 ```bash
 compose stop
 compose up -d
 ```
 
-### Tünelin durumu
+### Tunnel status
 
 ```bash
 systemctl status flop-tunnel
 ```
 
-### GPU'yu izle
+### Watch the GPU
 
 ```bash
 nvidia-smi
 ```
 
-Loglardan `CTRL + C` ile çıkabilirsiniz, programlar çalışmaya devam eder.
+Leave the logs with `CTRL + C`; the programs keep running.
 
 ---
 
-## Sürüm Güncelleme
+## Updating to a New Release
 
-1. https://flop.network/releases.json adresinden `miner-worker` ve `miner-vllm-toploc`
-   için yeni `image` değerlerini alın.
-2. `/opt/flop-miner/miner.env` içindeki `FLOP_WORKER_IMAGE` ve `FLOP_BACKEND_IMAGE`
-   satırlarını değiştirin.
-3. Yeni sürümleri indirip programları yeniden başlatın:
+1. Get the new `image` values for `miner-worker` and `miner-vllm-toploc` from
+   https://flop.network/releases.json.
+2. Change the `FLOP_WORKER_IMAGE` and `FLOP_BACKEND_IMAGE` lines in `/opt/flop-miner/miner.env`.
+3. Download the new versions and restart the programs:
 
 ```bash
 compose pull && compose up -d
 ```
 
-`signer` dosyasını, `session-keys` klasörünü ve `worker-data` alanını koruyun.
-`compose down -v` komutunu kullanmayın, kalibrasyon bilgileri silinir.
+Keep the `signer` file, the `session-keys` folder and the `worker-data` volume. Do not use
+`compose down -v`: it deletes the calibration data.
 
 ---
 
-## Vast.ai Sunucusunu Kapatmadan Önce
+## Before You Shut Down the Vast.ai Server
 
-- `/opt/flop-miner/signer` içindeki 24 kelimenin ve `session-keys/enclave.seed` dosyasının
-  yedeğini aldığınızdan emin olun.
-- **Stop** GPU ücretini durdurur, disk ücreti devam eder.
-- **Destroy** sunucuyu ve bütün dosyaları siler. Stake miner hesabınızda kalır. Aynı `signer`
-  ile yeni bir sunucuda devam edebilirsiniz. Sponsor her hesaba bir kez kayıt yapar.
+- Make sure you have a backup of the 24 words in `/opt/flop-miner/signer` and of the
+  `session-keys/enclave.seed` file.
+- **Stop** pauses the GPU cost; the disk cost continues.
+- **Destroy** deletes the server and all its files. The stake stays in your miner account. You can
+  continue on a new server with the same `signer`. The sponsor registers each account only once.
 
 ---
 
-## ! Sık Karşılaşılan Hatalar
+## ! Common Errors
 
 ### `could not select device driver "" with capabilities: [[gpu]]`
 
-NVIDIA Container Toolkit kurulu değil. 6. adımı uygulayın.
+The NVIDIA Container Toolkit is not installed. Follow step 6.
 
-### `MODEL_VERIFICATION_FAILED` ve `fetch failed`
+### `MODEL_VERIFICATION_FAILED` and `fetch failed`
 
-İndirme sırasında geçici bir bağlantı hatası oldu. Aynı komutu tekrar çalıştırın.
+A temporary connection error happened during the download. Run the same command again.
 
-### Worker logunda `Signer:` satırında başka bir adres var
+### The `Signer:` line in the worker log shows a different address
 
-Worker `signer` dosyasını bulamamıştır. Dosyanın `/opt/flop-miner/signer` yolunda olduğunu,
-sahibinin `root` ve izninin `600` olduğunu kontrol edin:
+The worker did not find the `signer` file. Check that the file is at `/opt/flop-miner/signer`,
+that it belongs to `root` and that its permission is `600`:
 
 ```bash
 ls -la /opt/flop-miner/signer
 ```
 
-### Sponsor `403`, `429` veya `503` dönüyor
+### The sponsor returns `403`, `429` or `503`
 
-`403`: hesap kabul edilmedi. `429`: sponsor dolu. Mesajda `automatic miner sponsorship is
-full` yazıyorsa kalibrasyon bekleyen sponsorlu miner sayısı sınıra (3) ulaşmıştır. Biri
-kalibre olunca yer açılır, bir süre sonra tekrar deneyin. Mesaj günlük sınırdan söz ediyorsa
-ertesi gün deneyin. `503`: servis geçici olarak cevap vermiyor, bir süre sonra deneyin.
+`403`: the account was not accepted. `429`: the sponsor is full. If the message says
+`automatic miner sponsorship is full`, the number of sponsored miners waiting for calibration has
+reached the limit (3). A slot opens when one of them calibrates; try again after a while. If the
+message talks about a daily limit, try again the next day. `503`: the service is not answering
+for now; try again after a while.
 
 ### `SESSION_PUBLIC_HOST must be a lowercase DNS name`
 
-`miner.env` içindeki adresi başında `https://` olmadan ve küçük harflerle yazın.
+Write the address in `miner.env` without `https://` at the start and in lowercase.
 
-### Backend açılmıyor
+### The backend does not start
 
-`nvidia-smi` çıktısında sürücünün 580 veya üzeri, CUDA'nın 13.0 veya üzeri olduğunu kontrol
-edin. Daha eski sürücülü bir makinede bu program çalışmaz.
+Check in the `nvidia-smi` output that the driver is 580 or newer and CUDA is 13.0 or newer. This
+program does not run on a machine with an older driver.
 
-### `/session/open` isteği `503` dönüyor
+### `/session/open` returns `503`
 
-Miner henüz kalibre olmamıştır. Kalibrasyon tamamlanana kadar bu normaldir.
-
----
-
-## Güvenlik
-
-- Miner için ayrı bir hesap kullanın. Ana cüzdanınızı hiçbir sunucuya koymayın.
-- `signer`, `miner.json`, keystore şifresi, `SESSION_AUTH_TOKEN` ve `INFERENCE_API_KEY`
-  sunucuda kalır. Bunları kimseyle paylaşmayın.
-- Worker'ın 8645 portu ve backend'in 8000 portu dışarıya açılmaz. Dışarıdan yalnızca tünel
-  adresi görünür ve şifresiz istekleri reddeder.
-- FLOP hiçbir zaman seed phrase istemez. FLOP'un resmi Discord veya Telegram kanalı yoktur.
-- Herhangi bir linke güvenmeden önce https://flop.finance/official/ sayfasıyla karşılaştırın.
+The miner is not calibrated yet. This is normal until calibration completes.
 
 ---
 
-## Test Notları
+## Security
 
-Bu rehber 3 Kasım 2026'da iki gerçek Vast.ai sunucusunda baştan sona denendi:
+- Use a separate account for the miner. Never put your main wallet on any server.
+- `signer`, `miner.json`, the keystore password, `SESSION_AUTH_TOKEN` and `INFERENCE_API_KEY`
+  stay on the server. Never share them with anyone.
+- The worker's port 8645 and the backend's port 8000 are not open to the outside. Only the tunnel
+  address is visible from outside, and it refuses requests without a key.
+- FLOP never asks for your seed phrase. FLOP has no official Discord or Telegram channel.
+- Before trusting any link, compare it with https://flop.finance/official/.
+
+---
+
+## Test Notes
+
+This guide was tested end to end on two real Vast.ai servers on 3 November 2026:
 
 | Test | RTX 5090 | RTX 5060 Ti |
 | --- | --- | --- |
-| Sunucu | Ubuntu 22.04 VM, Teksas, 30 vCPU, 47 GB RAM | Ubuntu 22.04 VM, Quebec, 9 vCPU, 36 GB RAM |
+| Server | Ubuntu 22.04 VM, Texas, 30 vCPU, 47 GB RAM | Ubuntu 22.04 VM, Quebec, 9 vCPU, 36 GB RAM |
 | GPU | 32 GB VRAM | 16 GB VRAM |
-| Sürücü | 580.95.05, CUDA 13.0 | 580.95.05, CUDA 13.0 |
-| Programların inmesi | 3,5 dakika | Yaklaşık 10 dakika |
-| Model doğrulama | Kök değer zincirdeki kayıtla eşleşti | Kök değer zincirdeki kayıtla eşleşti |
-| Sponsor kaydı | İlk istekte kabul edildi | İlk istek `429` döndü (sıra doluydu), 16 dakika sonra kabul edildi |
-| Stake | İkinci istekte 2.000.000 FLOP'a tamamlandı | 1.000.000 FLOP yetti |
-| Backend | vLLM 0.31.0, KV önbellek 26,61 GiB | vLLM 0.31.0, KV önbellek 12,38 GiB |
-| Worker | İlk dakikada 72 test işi cevaplandı | İlk 2 dakikada 47 test işi cevaplandı |
-| Dışarıdan kontrol | Şifresiz istek `401` döndü | Şifresiz istek `401` döndü |
-| GPU bildirimi | Zincire yazıldı, ücret 0,0024 FLOP | Denenmedi |
-| Kalibrasyon | 12 dakikada kabul edildi: 64 iş, 621 blok, 200 GFLOP/s, `Soft` | 12 dakikada kabul edildi: 64 iş, 618 blok, 130 GFLOP/s, `Soft` |
-| Kurulum süresi | Yaklaşık 25 dakika | Yaklaşık 45 dakika (16 dakikası sponsor sırası) |
-| Disk kullanımı | 31 GB | 32 GB |
-| Maliyet | Saatte 0,703 dolar, internet GB başına 0,005 dolar | Saatte 0,197 dolar, internet GB başına 0,02 dolar |
+| Driver | 580.95.05, CUDA 13.0 | 580.95.05, CUDA 13.0 |
+| Program downloads | 3.5 minutes | About 10 minutes |
+| Model verification | The root matched the record on the chain | The root matched the record on the chain |
+| Sponsor registration | Accepted on the first request | The first request returned `429` (the queue was full), accepted 16 minutes later |
+| Stake | Topped up to 2,000,000 FLOP with a second request | 1,000,000 FLOP was enough |
+| Backend | vLLM 0.31.0, KV cache 26.61 GiB | vLLM 0.31.0, KV cache 12.38 GiB |
+| Worker | 72 test jobs answered in the first minute | 47 test jobs answered in the first 2 minutes |
+| Outside check | A request without a key returned `401` | A request without a key returned `401` |
+| GPU declaration | Written to the chain, fee 0.0024 FLOP | Not tried |
+| Calibration | Accepted in 12 minutes: 64 jobs, 621 blocks, 200 GFLOP/s, `Soft` | Accepted in 12 minutes: 64 jobs, 618 blocks, 130 GFLOP/s, `Soft` |
+| Setup time | About 25 minutes | About 45 minutes (16 of them in the sponsor queue) |
+| Disk usage | 31 GB | 32 GB |
+| Cost | $0.703 per hour, internet $0.005 per GB | $0.197 per hour, internet $0.02 per GB |
 
 ---
 
-## Resmi Kaynaklar
+## Official Links
 
-- FLOP Miner Dokümanı: https://docs.flop.network/docs/run-miner
-- GPU Sahipleri İçin Başlangıç: https://docs.flop.network/docs/run-gpu-provider
-- Explorer Miner Sayfası: https://explorer.devnet.flop.network/miner
-- Yayın Listesi: https://flop.network/releases.json
-- Hata Bildirimi: https://github.com/flop-labs/network
-- Resmi Linkler: https://flop.finance/official/
+- FLOP Miner Docs: https://docs.flop.network/docs/run-miner
+- Getting Started for GPU Owners: https://docs.flop.network/docs/run-gpu-provider
+- Explorer Miner Page: https://explorer.devnet.flop.network/miner
+- Release List: https://flop.network/releases.json
+- Bug Reports: https://github.com/flop-labs/network
+- Official Links: https://flop.finance/official/
 
 ---
 
 ## Disclaimer
 
-Bu rehber yatırım tavsiyesi değildir ve FLOP Labs'in resmi rehberi değildir. Devnet ödül
-vermez ve sıfırlanabilir. GPU kiralama, disk ve internet masrafları size aittir. Komutları
-çalıştırmadan önce FLOP'un resmi dokümanındaki güncel sürümleri kontrol edin.
+This guide is not investment advice and is not an official FLOP Labs guide. The devnet gives no
+rewards and can be reset. GPU rental, disk and internet costs are yours. Before running the
+commands, check the current versions in FLOP's official docs.
 
 ---
 
-Hazırlayan: [@UfukDegen](https://x.com/UfukDegen)
-Sorularınız için bana ulaşabilirsiniz.
+Prepared by [@UfukDegen](https://x.com/UfukDegen). Feel free to reach out with questions.
