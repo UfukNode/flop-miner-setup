@@ -22,8 +22,9 @@ Kayıt için gereken stake'i ağ karşılar, sizin FLOP satın almanız veya yat
 > kimseyle paylaşmayın. Resmi linklerin tamamı https://flop.finance/official/ sayfasındadır.
 
 > [!NOTE]
-> Bu rehberdeki her adım 3 Kasım 2026'da Vast.ai üzerinde 1x RTX 5090'lı bir Ubuntu 22.04 VM'de
-> baştan sona denendi. Görsellerdeki çıktılar o kurulumdan alındı.
+> Bu rehberdeki her adım 3 Kasım 2026'da Vast.ai üzerinde iki ayrı Ubuntu 22.04 VM'de, 1x RTX 5090
+> ve 1x RTX 5060 Ti ile baştan sona denendi. İkisi de kalibrasyondan geçti. Görsellerdeki
+> çıktılar RTX 5090 kurulumundan alındı.
 
 ---
 
@@ -53,9 +54,19 @@ Kayıt için gereken stake'i ağ karşılar, sizin FLOP satın almanız veya yat
 | İşletim sistemi | Ubuntu 22.04 veya 24.04 |
 | İnternet | Model programı tek başına 23 GB indirir |
 
-Ben bu rehberi Vast.ai'de saati 0,70 dolar olan bir RTX 5090 ile denedim. Yukarıdaki
-gereksinimleri karşılayan daha ucuz kartlarla ve farklı sağlayıcılarla da kurabilirsiniz.
-Vast.ai kullanacaksanız **VM** etiketli şablonu seçin. Normal şablonlarda Docker çalışmaz.
+### Denenen Kartlar
+
+| Kart | VRAM | Vast.ai saatlik ücreti | Kalibrasyon |
+| --- | --- | --- | --- |
+| RTX 5060 Ti | 16 GB | Yaklaşık 0,20 dolar | Kabul edildi, 130 GFLOP/s |
+| RTX 5090 | 32 GB | Yaklaşık 0,70 dolar | Kabul edildi, 200 GFLOP/s |
+
+En uygun fiyatlı seçenek 16 GB'lık RTX 5060 Ti. Ücretlere disk dahildir, internet ücreti
+ayrıca alınır. Fiyatlar 3 Kasım 2026'daki fiyatlardır ve makineye göre değişir.
+
+Yukarıdaki gereksinimleri karşılayan başka kartlarla ve farklı sağlayıcılarla da
+kurabilirsiniz. Vast.ai kullanacaksanız **VM** etiketli şablonu seçin. Normal şablonlarda
+Docker çalışmaz.
 
 ---
 
@@ -111,7 +122,7 @@ Anahtarı sunucuyu kiraladıktan sonra eklerseniz o sunucuya kendiliğinden ekle
 
 ---
 
-## 3. RTX 5090 VM Kiralama
+## 3. VM Kiralama
 
 1. Sol menüden **Search** bölümüne girin.
 2. Soldaki şablon kutusunda **Change Template** butonuna tıklayın.
@@ -120,7 +131,8 @@ Anahtarı sunucuyu kiraladıktan sonra eklerseniz o sunucuya kendiliğinden ekle
 
 ![VM şablonu seçimi](assets/03-vast-template-vm.png)
 
-5. Üstteki filtrelerden **On-Demand**, GPU olarak **RTX 5090** ve bölgeyi seçin.
+5. Üstteki filtrelerden **On-Demand**, GPU olarak **RTX 5060 Ti** veya **RTX 5090** ve bölgeyi
+   seçin.
 6. Makinenin `Max CUDA` değerinin `13.0` veya üzeri olduğunu kontrol edin.
 7. Fiyatın üzerine gelerek saatlik toplam ücreti görün.
 
@@ -148,7 +160,9 @@ Makine seçerken şu değerlere bakın:
 
 1. Sol menüden **Instances** bölümüne girin.
 2. Sunucunun açılmasını bekleyin. Vast, VM'lerin açılmasının 30 dakikayı bulabileceğini
-   söylüyor. Testte sunucu 2 dakika içinde açıldı.
+   söylüyor. Testte RTX 5090 sunucusu 2 dakika içinde açıldı.
+   Sunucu uzun süre açılmazsa veya durumu `exited` olursa onu **Destroy** ile silin ve başka
+   bir makine kiralayın. İlk denediğim RTX 5060 Ti hiç açılmadı, ikincisi sorunsuz açıldı.
 3. Sunucu açılınca **>_Connect** butonuna tıklayın.
 
 ![Vast.ai Connect butonu](assets/06-vast-instance.png)
@@ -312,10 +326,13 @@ stake ve işlem ücretleri için 250 test FLOP yatırır:
 ![Stake sponsoru](assets/12-term-sponsor.png)
 
 - Kendiniz `flop miner register` çalıştırmayın. Sponsor sizi zaten kaydeder.
-- `429` günlük sınır doldu demektir, ertesi gün tekrar deneyin. `503` gelirse bir süre sonra
+- `429` ve `automatic miner sponsorship is full` mesajı sponsorun o an dolu olduğunu gösterir.
+  Aynı anda en fazla 3 sponsorlu miner kalibrasyon bekleyebilir. Biri kalibre olunca yer
+  açılır. Bir süre sonra aynı komutu tekrar çalıştırın. `503` gelirse de bir süre sonra
   tekrar deneyin.
 - Hızlı kartlar daha fazla stake ister. Aynı komutu bir kez daha çalıştırırsanız sponsor
-  stake'i en fazla 2.000.000 test FLOP'a tamamlar.
+  stake'i en fazla 2.000.000 test FLOP'a tamamlar. Testte RTX 5060 Ti'ye 1.000.000 yetti,
+  RTX 5090 için ikinci istek gerekti.
 
 ---
 
@@ -513,8 +530,9 @@ compose logs worker | grep -E "answered task|calibration" | tail
 flop --network devnet --rpc wss://rpc.devnet.flop.network miner status MINER_ADRESINIZ --json | jq .calibration
 ```
 
-Testte kalibrasyon, worker açıldıktan yaklaşık 12 dakika sonra kabul edildi: 621 blok içinde
-64 doğrulanmış iş, 200 GFLOP/s. `calibration` alanı `null` yerine bu bilgileri gösteriyorsa
+Testte kalibrasyon, worker açıldıktan yaklaşık 12 dakika sonra kabul edildi: RTX 5090'da 621
+blok içinde 64 doğrulanmış iş ve 200 GFLOP/s, RTX 5060 Ti'de 618 blok içinde 64 doğrulanmış iş
+ve 130 GFLOP/s. `calibration` alanı `null` yerine bu bilgileri gösteriyorsa
 miner'ınız hazırdır:
 
 ![Kalibrasyon kabul edildi](assets/20-term-calibration.png)
@@ -632,8 +650,10 @@ ls -la /opt/flop-miner/signer
 
 ### Sponsor `403`, `429` veya `503` dönüyor
 
-`403`: hesap kabul edilmedi. `429`: günlük sınır doldu, ertesi gün deneyin. `503`: servis
-geçici olarak cevap vermiyor, bir süre sonra deneyin.
+`403`: hesap kabul edilmedi. `429`: sponsor dolu. Mesajda `automatic miner sponsorship is
+full` yazıyorsa kalibrasyon bekleyen sponsorlu miner sayısı sınıra (3) ulaşmıştır. Biri
+kalibre olunca yer açılır, bir süre sonra tekrar deneyin. Mesaj günlük sınırdan söz ediyorsa
+ertesi gün deneyin. `503`: servis geçici olarak cevap vermiyor, bir süre sonra deneyin.
 
 ### `SESSION_PUBLIC_HOST must be a lowercase DNS name`
 
@@ -664,25 +684,25 @@ Miner henüz kalibre olmamıştır. Kalibrasyon tamamlanana kadar bu normaldir.
 
 ## Test Notları
 
-Bu rehber 3 Kasım 2026'da gerçek bir Vast.ai sunucusunda baştan sona denendi:
+Bu rehber 3 Kasım 2026'da iki gerçek Vast.ai sunucusunda baştan sona denendi:
 
-| Test | Sonuç |
-| --- | --- |
-| Sunucu | Vast.ai Ubuntu 22.04 VM, Teksas, 30 vCPU, 47 GB RAM, 126 GB disk |
-| GPU | NVIDIA GeForce RTX 5090, 32 GB VRAM |
-| Sürücü | 580.95.05, CUDA 13.0 |
-| Programların inmesi | 3,5 dakika (23 GB model programı dahil) |
-| Model doğrulama | `verity-v1` kök değeri zincirdeki kayıtla eşleşti |
-| Sponsor kaydı | Davetsiz kabul edildi: 1.000.000 FLOP stake ve 250 FLOP işlem ücreti |
-| Stake tamamlama | İkinci istekte 2.000.000 FLOP'a tamamlandı |
-| Backend | vLLM 0.31.0, model 0,93 GiB, KV önbellek 26,61 GiB |
-| Worker | Ghost anahtarı ve tünel adresi yayınlandı, ilk dakikada 72 test işi cevaplandı |
-| Dışarıdan kontrol | Şifresiz istek `401` döndü |
-| GPU bildirimi | Zincire yazıldı, ücret 0,0024 FLOP |
-| Kalibrasyon | Worker açıldıktan yaklaşık 12 dakika sonra kabul edildi: 64 iş, 621 blok, 200 GFLOP/s, `Soft` |
-| Kurulum süresi | SSH bağlantısından kalibrasyona kadar yaklaşık 25 dakika |
-| Disk kullanımı | 31 GB |
-| Maliyet | Saatte 0,703 dolar ve internet ücreti |
+| Test | RTX 5090 | RTX 5060 Ti |
+| --- | --- | --- |
+| Sunucu | Ubuntu 22.04 VM, Teksas, 30 vCPU, 47 GB RAM | Ubuntu 22.04 VM, Quebec, 9 vCPU, 36 GB RAM |
+| GPU | 32 GB VRAM | 16 GB VRAM |
+| Sürücü | 580.95.05, CUDA 13.0 | 580.95.05, CUDA 13.0 |
+| Programların inmesi | 3,5 dakika | Yaklaşık 10 dakika |
+| Model doğrulama | Kök değer zincirdeki kayıtla eşleşti | Kök değer zincirdeki kayıtla eşleşti |
+| Sponsor kaydı | İlk istekte kabul edildi | İlk istek `429` döndü (sıra doluydu), 16 dakika sonra kabul edildi |
+| Stake | İkinci istekte 2.000.000 FLOP'a tamamlandı | 1.000.000 FLOP yetti |
+| Backend | vLLM 0.31.0, KV önbellek 26,61 GiB | vLLM 0.31.0, KV önbellek 12,38 GiB |
+| Worker | İlk dakikada 72 test işi cevaplandı | İlk 2 dakikada 47 test işi cevaplandı |
+| Dışarıdan kontrol | Şifresiz istek `401` döndü | Şifresiz istek `401` döndü |
+| GPU bildirimi | Zincire yazıldı, ücret 0,0024 FLOP | Denenmedi |
+| Kalibrasyon | 12 dakikada kabul edildi: 64 iş, 621 blok, 200 GFLOP/s, `Soft` | 12 dakikada kabul edildi: 64 iş, 618 blok, 130 GFLOP/s, `Soft` |
+| Kurulum süresi | Yaklaşık 25 dakika | Yaklaşık 45 dakika (16 dakikası sponsor sırası) |
+| Disk kullanımı | 31 GB | 32 GB |
+| Maliyet | Saatte 0,703 dolar, internet GB başına 0,005 dolar | Saatte 0,197 dolar, internet GB başına 0,02 dolar |
 
 ---
 
