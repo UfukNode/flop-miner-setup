@@ -40,20 +40,6 @@ Kayıt için gereken stake'i ağ karşılar, sizin FLOP satın almanız veya yat
 | Explorer | https://explorer.devnet.flop.network/mining |
 | RPC | `wss://rpc.devnet.flop.network` |
 
-Bu rehberde kullanılan ve birlikte test edilen sürümler:
-
-```text
-flop cli          : 0.1.220
-miner-worker      : 0.1.238
-miner-vllm-toploc : 0.1.239 (vLLM 0.31.0, CUDA 13.0.2)
-NVIDIA sürücüsü   : 580.95.05 (CUDA 13.0)
-Docker            : 28.1.1, Compose v2.35.1
-```
-
-Sürümler FLOP'un yayın listesindeki sabit sürümlerdir: https://flop.network/releases.json.
-FLOP'un hazır miner paketi şu an yalnızca FLOP ekibinden dağıtıldığı için bu rehber aynı
-resmi programları kendi `docker-compose.yml` dosyasıyla çalıştırır.
-
 ---
 
 ## Sistem Gereksinimleri
@@ -67,24 +53,9 @@ resmi programları kendi `docker-compose.yml` dosyasıyla çalıştırır.
 | İşletim sistemi | Ubuntu 22.04 veya 24.04 |
 | İnternet | Model programı tek başına 23 GB indirir |
 
-Vast.ai kiralarken benim pratik önerim:
-
-```text
-GPU       : 1x RTX 5090 (veya 16 GB ve üzeri VRAM'li başka bir NVIDIA kart)
-Şablon    : Ubuntu 22.04 VM
-Disk      : 130 GB (şablonun varsayılanı)
-Max CUDA  : 13.0 veya üzeri
-Kiralama  : On-Demand
-```
-
-> [!IMPORTANT]
-> Vast.ai'deki normal şablonlar (NVIDIA CUDA, PyTorch, Jupyter) aslında birer Docker
-> kutusudur ve içlerinde Docker çalıştırılamaz. FLOP miner Docker Compose ile çalıştığı için
-> mutlaka **VM** etiketli şablonu seçin.
-
-Testte kullandığım makine Teksas'taydı ve saati 0,703 dolardı (0,667 dolar GPU, 0,037 dolar
-disk). İnternet kullanımı ayrıca ücretlendirilir. Makineyi kiralamadan önce saatlik toplam
-ücreti kontrol edin.
+Ben bu rehberi Vast.ai'de saati 0,70 dolar olan bir RTX 5090 ile denedim. Yukarıdaki
+gereksinimleri karşılayan daha ucuz kartlarla ve farklı sağlayıcılarla da kurabilirsiniz.
+Vast.ai kullanacaksanız **VM** etiketli şablonu seçin. Normal şablonlarda Docker çalışmaz.
 
 ---
 
@@ -335,24 +306,16 @@ stake'i yatırır.
 docker run --rm -v /opt/flop-miner:/work --entrypoint node "$FLOP_CLI" /work/sponsor.mjs
 ```
 
-`HTTP 200` ve `"success":true` görüyorsanız kayıt tamamdır:
+`HTTP 200` ve `"success":true` görüyorsanız kayıt tamamdır. Ağ hesabınıza 1.000.000 test FLOP
+stake ve işlem ücretleri için 250 test FLOP yatırır:
 
 ![Stake sponsoru](assets/12-term-sponsor.png)
 
-| Kalem | Anlamı |
-| --- | --- |
-| `stake` | Miner stake'i: 1.000.000 devnet FLOP |
-| `ops` | İşlem ücretleri için 250 devnet FLOP |
-| `topup` | Komutu tekrar çalıştırırsanız gelen ek stake (aşağıya bakın) |
-
-Tutarlar 18 haneli ham birimle yazılır: `1000000000000000000000000` = 1.000.000 FLOP.
-
 - Kendiniz `flop miner register` çalıştırmayın. Sponsor sizi zaten kaydeder.
-- `403` cevabı hesabın kabul edilmediğini, `429` günlük sınıra ulaşıldığını gösterir, ertesi
-  gün tekrar deneyin. `503` gelirse bir süre sonra tekrar deneyin.
-- Hızlı kartlar daha fazla stake ister. Testte RTX 5090 için gereken stake 1.824.400 FLOP'a
-  çıktı. Aynı komutu bir kez daha çalıştırdığımda sponsor stake'i üst sınır olan
-  2.000.000 FLOP'a tamamladı (`topup` satırı).
+- `429` günlük sınır doldu demektir, ertesi gün tekrar deneyin. `503` gelirse bir süre sonra
+  tekrar deneyin.
+- Hızlı kartlar daha fazla stake ister. Aynı komutu bir kez daha çalıştırırsanız sponsor
+  stake'i en fazla 2.000.000 test FLOP'a tamamlar.
 
 ---
 
