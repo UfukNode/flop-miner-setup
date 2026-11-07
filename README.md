@@ -2,6 +2,12 @@
 
 **English** | [Türkçe](Turkce-Kurulum.md)
 
+> [!WARNING]
+> **Update, 7 November 2026:** the devnet moved to runtime version 1014014 at 05:23 UTC. CLI
+> v0.1.220, which this guide used before, does not work with it: `model fetch` and `miner status`
+> stop with `Unsupported runtime spec version 1014014`. The guide now uses CLI v0.1.290. If you
+> started the setup before this date, apply [this fix](#unsupported-runtime-spec-version-1014014).
+
 This guide is for anyone who wants to rent a virtual machine (VM) with an NVIDIA GPU on Vast.ai
 and run a GPU miner on the FLOP Devnet.
 
@@ -330,9 +336,11 @@ If you see `HTTP 200` and `"success":true`, the registration is done. The networ
 
 - Do not run `flop miner register` yourself. The sponsor already registers you.
 - `429` with the message `automatic miner sponsorship is full` means the sponsor is full right
-  now. At most 3 sponsored miners can wait for calibration at the same time. A slot opens when one
-  of them calibrates. Run the same command again after a while. If you get `503`, also try again
-  after a while.
+  now. At most 40 sponsored miners can wait for calibration at the same time, and the sponsor takes
+  at most 100 new miners a day. A slot opens when one of them calibrates. Run the same command
+  again after a while. If you get `503`, also try again after a while.
+- A registered miner holds one of these places until it calibrates. Continue with the next steps
+  right after this one.
 - Faster cards need more stake. If you run the same command once more, the sponsor tops the stake
   up to at most 2,000,000 test FLOP. In the test, 1,000,000 was enough for the RTX 5060 Ti; the
   RTX 5090 needed the second request.
@@ -348,12 +356,16 @@ not match the record exactly, it does not write the files.
 flop --network devnet --rpc wss://rpc.devnet.flop.network model fetch 0x1a52c1abe781db051e70ae357f72bb70161ca0c092df0b618f22a9292ba63306 --precision BF16 --output-dir /work/models/qwen2.5-0.5b-instruct --json
 ```
 
-You should see `"ok": true` and a `computed_root` value equal to the model hash:
+You should see `"ok": true` and a `verified_root` value equal to the model hash (without the `0x`).
+The picture shows the older CLI, where this value was called `computed_root`:
 
 ![Verifying the model](assets/11-term-model.png)
 
 If the first attempt fails with `MODEL_VERIFICATION_FAILED` and `fetch failed`, run the same
 command again. In the test, the first attempt gave this error and the second one worked.
+
+If the error says `Unsupported runtime spec version`, your CLI is older than the chain: apply
+[this fix](#unsupported-runtime-spec-version-1014014).
 
 ---
 
@@ -605,13 +617,16 @@ Leave the logs with `CTRL + C`; the programs keep running.
 
 ## Updating to a New Release
 
-1. Get the new `image` values for `miner-worker` and `miner-vllm-toploc` from
-   https://flop.network/releases.json.
-2. Change the `FLOP_WORKER_IMAGE` and `FLOP_BACKEND_IMAGE` lines in `/opt/flop-miner/miner.env`.
+1. Get the new `image` values for `cli`, `miner-worker` and `miner-vllm-toploc` from
+   https://flop.network/releases.json. The list can fall behind the chain: on 7 November 2026 it
+   still named CLI v0.1.220, which no longer works. When in doubt, use the lines in this guide's
+   `miner.env.example`.
+2. Change the `FLOP_CLI`, `FLOP_WORKER_IMAGE` and `FLOP_BACKEND_IMAGE` lines in
+   `/opt/flop-miner/miner.env`.
 3. Download the new versions and restart the programs:
 
 ```bash
-compose pull && compose up -d
+source ~/.bashrc && docker pull "$FLOP_CLI" && compose pull && compose up -d
 ```
 
 Keep the `signer` file, the `session-keys` folder and the `worker-data` volume. Do not use
@@ -631,13 +646,27 @@ Keep the `signer` file, the `session-keys` folder and the `worker-data` volume. 
 
 ## ! Common Errors
 
+### `Unsupported runtime spec version 1014014`
+
+On 7 November 2026 the devnet moved to a new runtime version, and CLI v0.1.220 cannot read it.
+Put the new CLI in your settings file and download it:
+
+```bash
+sed -i 's#^FLOP_CLI=.*#FLOP_CLI=ghcr.io/flop-labs/flop-core/cli:v0.1.290@sha256:24e32b034b0d3600ee28127dad30d4228e623235f2dc62da34c2c85ba5e21a88#' /opt/flop-miner/miner.env
+source ~/.bashrc
+docker pull "$FLOP_CLI"
+```
+
+Then run the step that failed again. The worker and the backend need no change for this.
+
 ### `could not select device driver "" with capabilities: [[gpu]]`
 
 The NVIDIA Container Toolkit is not installed. Follow step 6.
 
 ### `MODEL_VERIFICATION_FAILED` and `fetch failed`
 
-A temporary connection error happened during the download. Run the same command again.
+A temporary connection error happened during the download. Run the same command again. If the
+message says `Unsupported runtime spec version`, apply the first fix in this section instead.
 
 ### The `Signer:` line in the worker log shows a different address
 
@@ -652,7 +681,7 @@ ls -la /opt/flop-miner/signer
 
 `403`: the account was not accepted. `429`: the sponsor is full. If the message says
 `automatic miner sponsorship is full`, the number of sponsored miners waiting for calibration has
-reached the limit (3). A slot opens when one of them calibrates; try again after a while. If the
+reached the limit (40). A slot opens when one of them calibrates; try again after a while. If the
 message talks about a daily limit, try again the next day. `503`: the service is not answering
 for now; try again after a while.
 
@@ -704,6 +733,11 @@ This guide was tested end to end on two real Vast.ai servers on 3 November 2026:
 | Setup time | About 25 minutes | About 45 minutes (16 of them in the sponsor queue) |
 | Disk usage | 31 GB | 32 GB |
 | Cost | $0.703 per hour, internet $0.005 per GB | $0.197 per hour, internet $0.02 per GB |
+
+On 7 November 2026, after the chain moved to runtime version 1014014, CLI v0.1.290 was checked
+again: creating and importing a key, `model fetch` (the verified root matched the model hash, 10
+files), `miner status` and `miner declare-gpu --dry-run` worked. CLI v0.1.220 stopped with
+`Unsupported runtime spec version 1014014`.
 
 ---
 

@@ -2,6 +2,13 @@
 
 **Türkçe** | [English](README.md)
 
+> [!WARNING]
+> **Güncelleme, 7 Kasım 2026:** Devnet Türkiye saatiyle 08:23'te 1014014 numaralı yeni runtime
+> sürümüne geçti. Rehberin önceki CLI sürümü v0.1.220 bu sürümle çalışmıyor: `model fetch` ve
+> `miner status` komutları `Unsupported runtime spec version 1014014` hatasıyla duruyor. Rehber
+> artık CLI v0.1.290 kullanıyor. Kuruluma bu tarihten önce başladıysanız
+> [bu düzeltmeyi](#unsupported-runtime-spec-version-1014014) uygulayın.
+
 Bu rehber, Vast.ai üzerinden NVIDIA GPU'lu bir sanal makine (VM) kiralayıp FLOP Devnet'te
 GPU miner kurmak isteyenler için hazırlandı.
 
@@ -329,9 +336,11 @@ stake ve işlem ücretleri için 250 test FLOP yatırır:
 
 - Kendiniz `flop miner register` çalıştırmayın. Sponsor sizi zaten kaydeder.
 - `429` ve `automatic miner sponsorship is full` mesajı sponsorun o an dolu olduğunu gösterir.
-  Aynı anda en fazla 3 sponsorlu miner kalibrasyon bekleyebilir. Biri kalibre olunca yer
-  açılır. Bir süre sonra aynı komutu tekrar çalıştırın. `503` gelirse de bir süre sonra
-  tekrar deneyin.
+  Aynı anda en fazla 40 sponsorlu miner kalibrasyon bekleyebilir, sponsor günde en fazla 100
+  yeni miner kabul eder. Biri kalibre olunca yer açılır. Bir süre sonra aynı komutu tekrar
+  çalıştırın. `503` gelirse de bir süre sonra tekrar deneyin.
+- Kayıtlı bir miner kalibre olana kadar bu yerlerden birini tutar. Bu yüzden bu adımdan sonra
+  kuruluma ara vermeden devam edin.
 - Hızlı kartlar daha fazla stake ister. Aynı komutu bir kez daha çalıştırırsanız sponsor
   stake'i en fazla 2.000.000 test FLOP'a tamamlar. Testte RTX 5060 Ti'ye 1.000.000 yetti,
   RTX 5090 için ikinci istek gerekti.
@@ -347,12 +356,16 @@ aynı değilse dosyaları yazmaz.
 flop --network devnet --rpc wss://rpc.devnet.flop.network model fetch 0x1a52c1abe781db051e70ae357f72bb70161ca0c092df0b618f22a9292ba63306 --precision BF16 --output-dir /work/models/qwen2.5-0.5b-instruct --json
 ```
 
-`"ok": true` ve `computed_root` değerinin model hash'iyle aynı olduğunu görmelisiniz:
+`"ok": true` ve `verified_root` değerinin model hash'iyle aynı olduğunu görmelisiniz (başındaki
+`0x` olmadan). Görseldeki çıktı eski CLI'ya ait, orada bu değerin adı `computed_root`:
 
 ![Model doğrulama](assets/11-term-model.png)
 
 İlk denemede `MODEL_VERIFICATION_FAILED` ve `fetch failed` hatası alırsanız aynı komutu tekrar
 çalıştırın. Testte ilk deneme bu hatayı verdi, ikinci deneme başarılı oldu.
+
+Hata `Unsupported runtime spec version` diyorsa CLI'nız zincirden eski kalmıştır:
+[bu düzeltmeyi](#unsupported-runtime-spec-version-1014014) uygulayın.
 
 ---
 
@@ -606,14 +619,16 @@ Loglardan `CTRL + C` ile çıkabilirsiniz, programlar çalışmaya devam eder.
 
 ## Sürüm Güncelleme
 
-1. https://flop.network/releases.json adresinden `miner-worker` ve `miner-vllm-toploc`
-   için yeni `image` değerlerini alın.
-2. `/opt/flop-miner/miner.env` içindeki `FLOP_WORKER_IMAGE` ve `FLOP_BACKEND_IMAGE`
-   satırlarını değiştirin.
+1. https://flop.network/releases.json adresinden `cli`, `miner-worker` ve `miner-vllm-toploc`
+   için yeni `image` değerlerini alın. Bu liste zincirin gerisinde kalabilir: 7 Kasım 2026'da
+   hâlâ artık çalışmayan CLI v0.1.220'yi gösteriyordu. Emin değilseniz bu rehberin
+   `miner.env.example` dosyasındaki satırları kullanın.
+2. `/opt/flop-miner/miner.env` içindeki `FLOP_CLI`, `FLOP_WORKER_IMAGE` ve
+   `FLOP_BACKEND_IMAGE` satırlarını değiştirin.
 3. Yeni sürümleri indirip programları yeniden başlatın:
 
 ```bash
-compose pull && compose up -d
+source ~/.bashrc && docker pull "$FLOP_CLI" && compose pull && compose up -d
 ```
 
 `signer` dosyasını, `session-keys` klasörünü ve `worker-data` alanını koruyun.
@@ -633,13 +648,27 @@ compose pull && compose up -d
 
 ## ! Sık Karşılaşılan Hatalar
 
+### `Unsupported runtime spec version 1014014`
+
+Devnet 7 Kasım 2026'da yeni bir runtime sürümüne geçti ve CLI v0.1.220 bu sürümü okuyamıyor.
+Yeni CLI'yı ayar dosyanıza yazıp indirin:
+
+```bash
+sed -i 's#^FLOP_CLI=.*#FLOP_CLI=ghcr.io/flop-labs/flop-core/cli:v0.1.290@sha256:24e32b034b0d3600ee28127dad30d4228e623235f2dc62da34c2c85ba5e21a88#' /opt/flop-miner/miner.env
+source ~/.bashrc
+docker pull "$FLOP_CLI"
+```
+
+Ardından hata veren adımı tekrar çalıştırın. Worker ve backend için bir değişiklik gerekmez.
+
 ### `could not select device driver "" with capabilities: [[gpu]]`
 
 NVIDIA Container Toolkit kurulu değil. 6. adımı uygulayın.
 
 ### `MODEL_VERIFICATION_FAILED` ve `fetch failed`
 
-İndirme sırasında geçici bir bağlantı hatası oldu. Aynı komutu tekrar çalıştırın.
+İndirme sırasında geçici bir bağlantı hatası oldu. Aynı komutu tekrar çalıştırın. Mesajda
+`Unsupported runtime spec version` yazıyorsa bu bölümdeki ilk düzeltmeyi uygulayın.
 
 ### Worker logunda `Signer:` satırında başka bir adres var
 
@@ -653,7 +682,7 @@ ls -la /opt/flop-miner/signer
 ### Sponsor `403`, `429` veya `503` dönüyor
 
 `403`: hesap kabul edilmedi. `429`: sponsor dolu. Mesajda `automatic miner sponsorship is
-full` yazıyorsa kalibrasyon bekleyen sponsorlu miner sayısı sınıra (3) ulaşmıştır. Biri
+full` yazıyorsa kalibrasyon bekleyen sponsorlu miner sayısı sınıra (40) ulaşmıştır. Biri
 kalibre olunca yer açılır, bir süre sonra tekrar deneyin. Mesaj günlük sınırdan söz ediyorsa
 ertesi gün deneyin. `503`: servis geçici olarak cevap vermiyor, bir süre sonra deneyin.
 
@@ -705,6 +734,11 @@ Bu rehber 3 Kasım 2026'da iki gerçek Vast.ai sunucusunda baştan sona denendi:
 | Kurulum süresi | Yaklaşık 25 dakika | Yaklaşık 45 dakika (16 dakikası sponsor sırası) |
 | Disk kullanımı | 31 GB | 32 GB |
 | Maliyet | Saatte 0,703 dolar, internet GB başına 0,005 dolar | Saatte 0,197 dolar, internet GB başına 0,02 dolar |
+
+7 Kasım 2026'da, zincir 1014014 runtime sürümüne geçtikten sonra CLI v0.1.290 yeniden denendi:
+anahtar oluşturma ve içe aktarma, `model fetch` (doğrulanan kök model hash'iyle aynı, 10 dosya),
+`miner status` ve `miner declare-gpu --dry-run` çalıştı. CLI v0.1.220 ise
+`Unsupported runtime spec version 1014014` hatasıyla durdu.
 
 ---
 
