@@ -1,0 +1,8 @@
+[Unit]
+Description=FLOP miner signer-fence guard
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/flop-miner/fence-guard/fence-guard.sh
