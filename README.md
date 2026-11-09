@@ -3,6 +3,11 @@
 **English** | [Türkçe](Turkce-Kurulum.md)
 
 > [!WARNING]
+> **Update, 9 November 2026:** when the worker cannot confirm a transaction it sent, for example
+> because the RPC connection dropped, it locks itself (`miner signer is fenced`) and takes no new
+> sessions. The lock never opens by itself. The guard in [step 18](#18-install-the-fence-guard)
+> opens it once the chain shows it is safe. If you set up before this date, do step 18.
+>
 > **Update, 8 November 2026:** the worker was missing the `SESSION_COMMIT_IDS` setting, which
 > FLOP's miner docs leave out. Without it, sessions stop with
 > `V2 leaf cannot bind a TOPLOC activation commitment (fail closed)` and the miner is never paid.
@@ -38,9 +43,10 @@ have to buy or deposit any FLOP.
 > phrase. All official links are on https://flop.finance/official/.
 
 > [!NOTE]
-> Every step in this guide was tested end to end on 3 November 2026 on two separate Ubuntu 22.04
-> VMs on Vast.ai, one with 1x RTX 5090 and one with 1x RTX 5060 Ti. Both passed calibration. The
-> outputs in the images come from the RTX 5090 setup.
+> Steps 1 to 17 were tested end to end on 3 November 2026 on two separate Ubuntu 22.04 VMs on
+> Vast.ai, one with 1x RTX 5090 and one with 1x RTX 5060 Ti. Both passed calibration. The outputs
+> in the images come from the RTX 5090 setup. Step 18 was added on 9 November 2026 and tested on a
+> running RTX 5060 Ti miner.
 
 ---
 
@@ -577,6 +583,49 @@ compose logs worker | grep -E "\[session\] (open|settle|error)" | tail
 
 ---
 
+## 18. Install the Fence Guard
+
+If the worker cannot confirm the result of a transaction it sent, for example because the RPC
+connection dropped while it was waiting, it locks itself to stay safe. The log then shows
+`miner signer is fenced`, new sessions get `503` and the miner is not paid. The lock never opens
+by itself, and a restart does not open it.
+
+This guard checks the worker every 2 minutes. When the worker is locked, the guard asks the chain
+whether the stuck transaction can still go through. Only when it cannot does the guard keep a copy
+of the lock file, remove the lock and restart the worker.
+
+```bash
+U=https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/fence-guard
+install -d -m 700 /opt/flop-miner/fence-guard
+cd /opt/flop-miner/fence-guard
+curl -fsSL --remote-name-all "$U"/{fence-guard.sh,status.mjs,recover.mjs,reconcile.mjs}
+chmod +x fence-guard.sh
+curl -fsSL -o /etc/systemd/system/flop-fence-guard.service "$U/flop-fence-guard.service"
+curl -fsSL -o /etc/systemd/system/flop-fence-guard.timer "$U/flop-fence-guard.timer"
+systemctl daemon-reload
+systemctl enable --now flop-fence-guard.timer
+```
+
+Check that it runs and that the worker is not locked:
+
+```bash
+systemctl list-timers flop-fence-guard.timer --no-pager
+compose exec -T worker node --input-type=module < status.mjs | jq .
+```
+
+The timer should show its next run, and `"fenced": false` means the worker is not locked:
+
+![The fence guard](assets/22-term-fence-guard.png)
+
+- The guard opens the lock only after the stuck transaction's lifetime on the chain (512 blocks,
+  about 9 minutes) has passed, nothing from the miner account is pending and no session is open.
+  It waits at most 90 minutes for open sessions. A lock usually opens in about 20 minutes. The
+  guard writes what it does to `/opt/flop-miner/fence-guard/guard.log`.
+- It needs worker v0.1.286, the version in this guide. If you set up before 8 November, apply
+  [this fix](#v2-leaf-cannot-bind-a-toploc-activation-commitment-fail-closed) first.
+
+---
+
 ## Useful Commands
 
 ### Follow the worker log
@@ -687,6 +736,21 @@ compose exec -T worker printenv SESSION_COMMIT_IDS
 The last command should print `1`. In the test, the first session after this change was paid
 about a minute after it opened.
 
+### `miner signer is fenced`
+
+The worker locked itself because it could not confirm the result of a transaction, so new
+sessions get `503`. A restart does not open the lock, and FLOP's own instructions say not to
+delete the lock file by hand. Install the guard from [step 18](#18-install-the-fence-guard). It
+opens the lock once the chain shows it is safe, usually within 20 minutes. To see what it is doing:
+
+```bash
+tail /opt/flop-miner/fence-guard/guard.log
+```
+
+If the log says `BLOCKED, needs a person`, the guard found something unexpected or has already
+opened the lock 3 times in 6 hours, and it leaves the lock alone. Do not delete the file; report
+it at https://github.com/flop-labs/network.
+
 ### `could not select device driver "" with capabilities: [[gpu]]`
 
 The NVIDIA Container Toolkit is not installed. Follow step 6.
@@ -724,7 +788,8 @@ program does not run on a machine with an older driver.
 
 ### `/session/open` returns `503`
 
-The miner is not calibrated yet. This is normal until calibration completes.
+The miner is not calibrated yet. This is normal until calibration completes. If the answer says
+`miner signer is fenced`, see [this entry](#miner-signer-is-fenced).
 
 ---
 
@@ -772,6 +837,12 @@ the RTX 5060 Ti miner opened 42 sessions, 28 of them stopped with
 `V2 leaf cannot bind a TOPLOC activation commitment (fail closed)`, and none was paid. After the
 setting was added and the worker moved to v0.1.286, the first session was paid about a minute
 after it opened, and 7 sessions were paid by 9 November 03:21 UTC (3.15 test FLOP).
+
+On 9 November 2026 at 03:45 UTC, the RPC connection dropped while the worker was sending a
+session's payment, and the worker locked itself. It took no sessions for about 4 hours. The guard
+in step 18 checked on the chain that the transaction had never gone through and could no longer go
+through, and opened the lock at 07:54 UTC. The next session opened 2 minutes later and was paid at
+07:57 UTC.
 
 ---
 

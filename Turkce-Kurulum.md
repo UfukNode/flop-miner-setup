@@ -3,6 +3,12 @@
 **Türkçe** | [English](README.md)
 
 > [!WARNING]
+> **Güncelleme, 9 Kasım 2026:** Worker gönderdiği bir işlemin sonucunu doğrulayamadığında, örneğin
+> RPC bağlantısı koptuğunda, kendini kilitliyor (`miner signer is fenced`) ve yeni oturum almıyor.
+> Bu kilit kendiliğinden hiç açılmıyor. [18. adımdaki](#18-kilit-açıcıyı-kurma) açıcı, zincir
+> güvenli olduğunu gösterince kilidi açıyor. Kurulumu bu tarihten önce yaptıysanız bu adımı
+> uygulayın.
+>
 > **Güncelleme, 8 Kasım 2026:** Worker'da, FLOP'un miner dokümanında yer almayan
 > `SESSION_COMMIT_IDS` ayarı eksikti. Bu ayar olmadan oturumlar
 > `V2 leaf cannot bind a TOPLOC activation commitment (fail closed)` hatasıyla duruyor ve miner
@@ -38,9 +44,10 @@ Kayıt için gereken stake'i ağ karşılar, sizin FLOP satın almanız veya yat
 > kimseyle paylaşmayın. Resmi linklerin tamamı https://flop.finance/official/ sayfasındadır.
 
 > [!NOTE]
-> Bu rehberdeki her adım 3 Kasım 2026'da Vast.ai üzerinde iki ayrı Ubuntu 22.04 VM'de, 1x RTX 5090
-> ve 1x RTX 5060 Ti ile baştan sona denendi. İkisi de kalibrasyondan geçti. Görsellerdeki
-> çıktılar RTX 5090 kurulumundan alındı.
+> Bu rehberin ilk 17 adımı 3 Kasım 2026'da Vast.ai üzerinde iki ayrı Ubuntu 22.04 VM'de, 1x RTX
+> 5090 ve 1x RTX 5060 Ti ile baştan sona denendi. İkisi de kalibrasyondan geçti. Görsellerdeki
+> çıktılar RTX 5090 kurulumundan alındı. 18. adım 9 Kasım 2026'da eklendi ve çalışan bir RTX
+> 5060 Ti miner'ında denendi.
 
 ---
 
@@ -580,6 +587,51 @@ compose logs worker | grep -E "\[session\] (open|settle|error)" | tail
 
 ---
 
+## 18. Kilit Açıcıyı Kurma
+
+Worker gönderdiği bir işlemin sonucunu doğrulayamazsa, örneğin sonucu beklerken RPC bağlantısı
+koparsa, güvenlik için kendini kilitler. Logda `miner signer is fenced` yazar, yeni oturumlar
+`503` alır ve miner ödeme almaz. Bu kilit kendiliğinden hiç açılmaz, worker'ı yeniden başlatmak
+da açmaz.
+
+Bu açıcı worker'ı 2 dakikada bir kontrol eder. Worker kilitliyse, takılan işlemin zincire hâlâ
+girip giremeyeceğine zincirden bakar. Yalnızca giremeyeceği kesinleşince kilit dosyasının bir
+kopyasını saklar, kilidi kaldırır ve worker'ı yeniden başlatır.
+
+```bash
+U=https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/fence-guard
+install -d -m 700 /opt/flop-miner/fence-guard
+cd /opt/flop-miner/fence-guard
+curl -fsSL --remote-name-all "$U"/{fence-guard.sh,status.mjs,recover.mjs,reconcile.mjs}
+chmod +x fence-guard.sh
+curl -fsSL -o /etc/systemd/system/flop-fence-guard.service "$U/flop-fence-guard.service"
+curl -fsSL -o /etc/systemd/system/flop-fence-guard.timer "$U/flop-fence-guard.timer"
+systemctl daemon-reload
+systemctl enable --now flop-fence-guard.timer
+```
+
+Çalıştığını ve worker'ın kilitli olmadığını kontrol edin:
+
+```bash
+systemctl list-timers flop-fence-guard.timer --no-pager
+compose exec -T worker node --input-type=module < status.mjs | jq .
+```
+
+Zamanlayıcı bir sonraki çalışma saatini göstermelidir. `"fenced": false`, worker'ın kilitli
+olmadığını gösterir:
+
+![Kilit açıcı](assets/22-term-fence-guard.png)
+
+- Açıcı kilidi yalnızca takılan işlemin zincirdeki ömrü (512 blok, yaklaşık 9 dakika) dolunca,
+  miner hesabından bekleyen işlem kalmayınca ve açık oturum olmayınca açar. Açık oturumları en
+  fazla 90 dakika bekler. Kilit genellikle 20 dakika içinde açılır. Açıcı yaptıklarını
+  `/opt/flop-miner/fence-guard/guard.log` dosyasına yazar.
+- Açıcı worker v0.1.286 ister, bu rehberdeki sürüm de budur. Kurulumu 8 Kasım'dan önce
+  yaptıysanız önce [bu düzeltmeyi](#v2-leaf-cannot-bind-a-toploc-activation-commitment-fail-closed)
+  uygulayın.
+
+---
+
 ## Kullanacağınız Komutlar
 
 ### Worker logunu izle
@@ -691,6 +743,22 @@ compose exec -T worker printenv SESSION_COMMIT_IDS
 Son komut `1` yazmalıdır. Testte bu değişiklikten sonraki ilk oturum, açıldıktan yaklaşık bir
 dakika sonra ödendi.
 
+### `miner signer is fenced`
+
+Worker bir işlemin sonucunu doğrulayamadığı için kendini kilitlemiştir, bu yüzden yeni oturumlar
+`503` alır. Yeniden başlatmak kilidi açmaz. FLOP'un kendi talimatları da kilit dosyasının elle
+silinmemesini söyler. [18. adımdaki](#18-kilit-açıcıyı-kurma) açıcıyı kurun. Açıcı, zincir
+güvenli olduğunu gösterince kilidi açar, bu genellikle 20 dakika içinde olur. Ne yaptığını görmek
+için:
+
+```bash
+tail /opt/flop-miner/fence-guard/guard.log
+```
+
+Logda `BLOCKED, needs a person` yazıyorsa açıcı beklenmeyen bir durum bulmuştur ya da kilidi son
+6 saatte zaten 3 kez açmıştır, bu yüzden kilide dokunmaz. Dosyayı silmeyin, durumu
+https://github.com/flop-labs/network adresine bildirin.
+
 ### `could not select device driver "" with capabilities: [[gpu]]`
 
 NVIDIA Container Toolkit kurulu değil. 6. adımı uygulayın.
@@ -727,7 +795,8 @@ edin. Daha eski sürücülü bir makinede bu program çalışmaz.
 
 ### `/session/open` isteği `503` dönüyor
 
-Miner henüz kalibre olmamıştır. Kalibrasyon tamamlanana kadar bu normaldir.
+Miner henüz kalibre olmamıştır. Kalibrasyon tamamlanana kadar bu normaldir. Cevapta
+`miner signer is fenced` yazıyorsa [bu maddeye](#miner-signer-is-fenced) bakın.
 
 ---
 
@@ -775,6 +844,11 @@ anahtar oluşturma ve içe aktarma, `model fetch` (doğrulanan kök model hash'i
 hatasıyla durdu ve hiçbiri ödenmedi. Ayar eklenip worker v0.1.286'ya geçildikten sonra ilk oturum,
 açıldıktan yaklaşık bir dakika sonra ödendi. 9 Kasım'da Türkiye saatiyle 06:21'e kadar 7 oturum
 ödendi (3,15 test FLOP).
+
+9 Kasım 2026'da Türkiye saatiyle 06:45'te worker bir oturumun ödeme işlemini gönderirken RPC
+bağlantısı koptu ve worker kendini kilitledi. Yaklaşık 4 saat oturum almadı. 18. adımdaki açıcı,
+işlemin zincire hiç girmediğini ve artık giremeyeceğini zincirden doğruladı ve kilidi 10:54'te
+açtı. Sonraki oturum 2 dakika sonra açıldı ve 10:57'de ödendi.
 
 ---
 
