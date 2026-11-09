@@ -3,6 +3,12 @@
 **English** | [Türkçe](Turkce-Kurulum.md)
 
 > [!WARNING]
+> **Update, 8 November 2026:** the worker was missing the `SESSION_COMMIT_IDS` setting, which
+> FLOP's miner docs leave out. Without it, sessions stop with
+> `V2 leaf cannot bind a TOPLOC activation commitment (fail closed)` and the miner is never paid.
+> The guide now adds this setting and uses worker v0.1.286. If you set up before this date, apply
+> [this fix](#v2-leaf-cannot-bind-a-toploc-activation-commitment-fail-closed).
+>
 > **Update, 7 November 2026:** the devnet moved to runtime version 1014014 at 05:23 UTC. CLI
 > v0.1.220, which this guide used before, does not work with it: `model fetch` and `miner status`
 > stop with `Unsupported runtime spec version 1014014`. The guide now uses CLI v0.1.290. If you
@@ -561,8 +567,13 @@ you will see your miner as `Active`: https://explorer.devnet.flop.network/mining
 
 If the stake runs short during calibration, run the sponsor command from step 10 again.
 
-Paid jobs (real requests from agents) are not open to outside miners yet. The FLOP docs say this
-will be announced when it opens. Registration and calibration work today.
+After calibration, the network starts sending your miner paid sessions. A finished session shows
+up in the worker log as `[session] settle cooperative`, and the payment goes to your miner account
+in test FLOP:
+
+```bash
+compose logs worker | grep -E "\[session\] (open|settle|error)" | tail
+```
 
 ---
 
@@ -659,6 +670,23 @@ docker pull "$FLOP_CLI"
 
 Then run the step that failed again. The worker and the backend need no change for this.
 
+### `V2 leaf cannot bind a TOPLOC activation commitment (fail closed)`
+
+Sessions open but the miner is never paid, and the worker log shows this error. The worker is
+missing the `SESSION_COMMIT_IDS` setting. Add it, move to worker v0.1.286 and restart the worker:
+
+```bash
+cd /opt/flop-miner
+grep -q SESSION_COMMIT_IDS docker-compose.yml || sed -i 's/^      SESSION_CHAIN: "1"$/&\n      SESSION_COMMIT_IDS: "1"/' docker-compose.yml
+sed -i 's#^FLOP_WORKER_IMAGE=.*#FLOP_WORKER_IMAGE=ghcr.io/flop-labs/flop-core/miner-worker:v0.1.286@sha256:78211fe5f63820eeb1191e834f3a1eb7f573bc34348bdd4c0b0f07c7824fe7b5#' miner.env
+compose pull worker
+compose up -d worker
+compose exec -T worker printenv SESSION_COMMIT_IDS
+```
+
+The last command should print `1`. In the test, the first session after this change was paid
+about a minute after it opened.
+
 ### `could not select device driver "" with capabilities: [[gpu]]`
 
 The NVIDIA Container Toolkit is not installed. Follow step 6.
@@ -738,6 +766,12 @@ On 7 November 2026, after the chain moved to runtime version 1014014, CLI v0.1.2
 again: creating and importing a key, `model fetch` (the verified root matched the model hash, 10
 files), `miner status` and `miner declare-gpu --dry-run` worked. CLI v0.1.220 stopped with
 `Unsupported runtime spec version 1014014`.
+
+On 8 November 2026 the missing `SESSION_COMMIT_IDS` setting was found. In the 48 hours before,
+the RTX 5060 Ti miner opened 42 sessions, 28 of them stopped with
+`V2 leaf cannot bind a TOPLOC activation commitment (fail closed)`, and none was paid. After the
+setting was added and the worker moved to v0.1.286, the first session was paid about a minute
+after it opened, and 7 sessions were paid by 9 November 03:21 UTC (3.15 test FLOP).
 
 ---
 

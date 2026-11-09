@@ -3,6 +3,13 @@
 **Türkçe** | [English](README.md)
 
 > [!WARNING]
+> **Güncelleme, 8 Kasım 2026:** Worker'da, FLOP'un miner dokümanında yer almayan
+> `SESSION_COMMIT_IDS` ayarı eksikti. Bu ayar olmadan oturumlar
+> `V2 leaf cannot bind a TOPLOC activation commitment (fail closed)` hatasıyla duruyor ve miner
+> hiç ödeme almıyor. Rehber artık bu ayarı ekliyor ve worker v0.1.286 kullanıyor. Kurulumu bu
+> tarihten önce yaptıysanız
+> [bu düzeltmeyi](#v2-leaf-cannot-bind-a-toploc-activation-commitment-fail-closed) uygulayın.
+>
 > **Güncelleme, 7 Kasım 2026:** Devnet Türkiye saatiyle 08:23'te 1014014 numaralı yeni runtime
 > sürümüne geçti. Rehberin önceki CLI sürümü v0.1.220 bu sürümle çalışmıyor: `model fetch` ve
 > `miner status` komutları `Unsupported runtime spec version 1014014` hatasıyla duruyor. Rehber
@@ -563,8 +570,13 @@ miner'ınızı `Active` olarak görürsünüz: https://explorer.devnet.flop.netw
 
 Kalibrasyon sırasında stake yetmezse 10. adımdaki sponsor komutunu tekrar çalıştırın.
 
-Ücretli işler (ajanların gerçek istekleri) dışarıdan katılan miner'lara henüz açılmadı. FLOP
-dokümanı bunun açıldığında duyurulacağını yazıyor. Kayıt ve kalibrasyon bugün çalışıyor.
+Kalibrasyondan sonra ağ, miner'ınıza ücretli oturumlar göndermeye başlar. Biten bir oturum worker
+logunda `[session] settle cooperative` satırıyla görünür ve ödeme test FLOP olarak miner
+hesabınıza geçer:
+
+```bash
+compose logs worker | grep -E "\[session\] (open|settle|error)" | tail
+```
 
 ---
 
@@ -661,6 +673,24 @@ docker pull "$FLOP_CLI"
 
 Ardından hata veren adımı tekrar çalıştırın. Worker ve backend için bir değişiklik gerekmez.
 
+### `V2 leaf cannot bind a TOPLOC activation commitment (fail closed)`
+
+Oturumlar açılıyor fakat miner hiç ödeme almıyor ve worker logunda bu hata görünüyor. Worker'da
+`SESSION_COMMIT_IDS` ayarı eksiktir. Ayarı ekleyin, worker v0.1.286'ya geçin ve worker'ı yeniden
+başlatın:
+
+```bash
+cd /opt/flop-miner
+grep -q SESSION_COMMIT_IDS docker-compose.yml || sed -i 's/^      SESSION_CHAIN: "1"$/&\n      SESSION_COMMIT_IDS: "1"/' docker-compose.yml
+sed -i 's#^FLOP_WORKER_IMAGE=.*#FLOP_WORKER_IMAGE=ghcr.io/flop-labs/flop-core/miner-worker:v0.1.286@sha256:78211fe5f63820eeb1191e834f3a1eb7f573bc34348bdd4c0b0f07c7824fe7b5#' miner.env
+compose pull worker
+compose up -d worker
+compose exec -T worker printenv SESSION_COMMIT_IDS
+```
+
+Son komut `1` yazmalıdır. Testte bu değişiklikten sonraki ilk oturum, açıldıktan yaklaşık bir
+dakika sonra ödendi.
+
 ### `could not select device driver "" with capabilities: [[gpu]]`
 
 NVIDIA Container Toolkit kurulu değil. 6. adımı uygulayın.
@@ -739,6 +769,12 @@ Bu rehber 3 Kasım 2026'da iki gerçek Vast.ai sunucusunda baştan sona denendi:
 anahtar oluşturma ve içe aktarma, `model fetch` (doğrulanan kök model hash'iyle aynı, 10 dosya),
 `miner status` ve `miner declare-gpu --dry-run` çalıştı. CLI v0.1.220 ise
 `Unsupported runtime spec version 1014014` hatasıyla durdu.
+
+8 Kasım 2026'da eksik `SESSION_COMMIT_IDS` ayarı bulundu. Önceki 48 saatte RTX 5060 Ti miner'ı
+42 oturum açtı, bunların 28'i `V2 leaf cannot bind a TOPLOC activation commitment (fail closed)`
+hatasıyla durdu ve hiçbiri ödenmedi. Ayar eklenip worker v0.1.286'ya geçildikten sonra ilk oturum,
+açıldıktan yaklaşık bir dakika sonra ödendi. 9 Kasım'da Türkiye saatiyle 06:21'e kadar 7 oturum
+ödendi (3,15 test FLOP).
 
 ---
 
