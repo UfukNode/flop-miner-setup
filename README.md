@@ -3,6 +3,11 @@
 **English** | [Türkçe](Turkce-Kurulum.md)
 
 > [!WARNING]
+> **Update, 10 November 2026:** worker v0.1.286 answers sessions slowly, so FLOP's gateway gives
+> up on many of them and they show as `Closed`. [Step 19](#19-speed-patch-for-worker-v01286)
+> patches this until FLOP releases its fix. Each session turn also costs about 1.31 test FLOP in
+> fees; see the note in step 17.
+>
 > **Update, 9 November 2026:** when the worker cannot confirm a transaction it sent, for example
 > because the RPC connection dropped, it locks itself (`miner signer is fenced`) and takes no new
 > sessions. The lock never opens by itself. The guard in [step 18](#18-install-the-fence-guard)
@@ -45,8 +50,8 @@ have to buy or deposit any FLOP.
 > [!NOTE]
 > Steps 1 to 17 were tested end to end on 3 November 2026 on two separate Ubuntu 22.04 VMs on
 > Vast.ai, one with 1x RTX 5090 and one with 1x RTX 5060 Ti. Both passed calibration. The outputs
-> in the images come from the RTX 5090 setup. Step 18 was added on 9 November 2026 and tested on a
-> running RTX 5060 Ti miner.
+> in the images come from the RTX 5090 setup. Steps 18 and 19 were added on 9 and 10 November 2026
+> and tested on a running RTX 5060 Ti miner.
 
 ---
 
@@ -581,6 +586,12 @@ in test FLOP:
 compose logs worker | grep -E "\[session\] (open|settle|error)" | tail
 ```
 
+> [!NOTE]
+> Each turn of a session costs about 1.31 test FLOP in fees for its evidence record, more than a
+> small session pays ([#163](https://github.com/flop-labs/network/issues/163)). At the traffic we
+> saw, the 250 test FLOP the sponsor gives for fees lasts about three days, and FLOP has no top-up
+> for sponsored accounts yet ([#175](https://github.com/flop-labs/network/issues/175)).
+
 ---
 
 ## 18. Install the Fence Guard
@@ -623,6 +634,40 @@ The timer should show its next run, and `"fenced": false` means the worker is no
   guard writes what it does to `/opt/flop-miner/fence-guard/guard.log`.
 - It needs worker v0.1.286, the version in this guide. If you set up before 8 November, apply
   [this fix](#v2-leaf-cannot-bind-a-toploc-activation-commitment-fail-closed) first.
+
+---
+
+## 19. Speed Patch for Worker v0.1.286
+
+Worker v0.1.286 runs a full calibration check every time a session opens and on every turn. The
+check reads every miner's calibration jobs from FLOP's public RPC and took 13-28 seconds in our
+test, so FLOP's gateway gave up on many sessions, which then show as `Closed` in the explorer.
+FLOP has fixed this in a newer worker build that is not released yet
+([#168](https://github.com/flop-labs/network/issues/168)).
+
+Until then, this script makes the worker use the calibration status it already refreshes every 30
+seconds. It also stops a failed evidence upload from paying the registration fee twice, and it
+tries the evidence read-back once more ([#172](https://github.com/flop-labs/network/issues/172)).
+
+```bash
+cd /opt/flop-miner
+curl -fsSL -o patch-worker.sh https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/worker-patch/patch-worker.sh
+bash patch-worker.sh
+```
+
+Check that the worker runs the patched file:
+
+```bash
+compose exec -T worker sha256sum /repo/sdk/miner-worker/miner-worker.mjs
+```
+
+The value should match the `patched file:` line:
+
+![The worker patch](assets/23-term-worker-patch.png)
+
+- The script works only with worker v0.1.286. It checks FLOP's original file before changing
+  anything and keeps a copy of it in `/opt/flop-miner/patches`.
+- Before moving to a newer worker, undo it: `bash /opt/flop-miner/patch-worker.sh --undo`
 
 ---
 
@@ -677,13 +722,15 @@ Leave the logs with `CTRL + C`; the programs keep running.
 
 ## Updating to a New Release
 
-1. Get the new `image` values for `cli`, `miner-worker` and `miner-vllm-toploc` from
+1. If you applied step 19, undo it first: `bash /opt/flop-miner/patch-worker.sh --undo`. The
+   patch is only for worker v0.1.286.
+2. Get the new `image` values for `cli`, `miner-worker` and `miner-vllm-toploc` from
    https://flop.network/releases.json. The list can fall behind the chain: on 7 November 2026 it
    still named CLI v0.1.220, which no longer works. When in doubt, use the lines in this guide's
    `miner.env.example`.
-2. Change the `FLOP_CLI`, `FLOP_WORKER_IMAGE` and `FLOP_BACKEND_IMAGE` lines in
+3. Change the `FLOP_CLI`, `FLOP_WORKER_IMAGE` and `FLOP_BACKEND_IMAGE` lines in
    `/opt/flop-miner/miner.env`.
-3. Download the new versions and restart the programs:
+4. Download the new versions and restart the programs:
 
 ```bash
 source ~/.bashrc && docker pull "$FLOP_CLI" && compose pull && compose up -d
@@ -791,6 +838,13 @@ program does not run on a machine with an older driver.
 The miner is not calibrated yet. This is normal until calibration completes. If the answer says
 `miner signer is fenced`, see [this entry](#miner-signer-is-fenced).
 
+### Most sessions show as `Closed` in the explorer
+
+Most of them are test sessions that FLOP's gateway opens with almost no money (`0.0000 FLOP` in
+the explorer). In 48 hours on the devnet, about 9,000 of them went to 153 miners and none was paid,
+on any miner, so they need no fix. If sessions with real money also close, apply
+[step 19](#19-speed-patch-for-worker-v01286).
+
 ---
 
 ## Security
@@ -843,6 +897,12 @@ session's payment, and the worker locked itself. It took no sessions for about 4
 in step 18 checked on the chain that the transaction had never gone through and could no longer go
 through, and opened the lock at 07:54 UTC. The next session opened 2 minutes later and was paid at
 07:57 UTC.
+
+On 10 November 2026 FLOP's gateway was cancelling many session opens (20 before 11:00 UTC), and
+the median wait from a session's open to its first turn had grown to 14.8 seconds. Timed on the
+server, the worker's session gate took 13-28 seconds with the original file and 8-84 milliseconds
+with the patch from step 19. After the patch, the first turn came 4-5 seconds after the open and
+the next sessions were paid.
 
 ---
 

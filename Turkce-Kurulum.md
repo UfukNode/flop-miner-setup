@@ -3,6 +3,11 @@
 **Türkçe** | [English](README.md)
 
 > [!WARNING]
+> **Güncelleme, 10 Kasım 2026:** Worker v0.1.286 oturumlara geç cevap veriyor. FLOP'un ağ geçidi
+> bu yüzden oturumların birçoğunu bırakıyor ve bunlar explorer'da `Closed` görünüyor.
+> [19. adımdaki](#19-worker-v01286-hız-yaması) yama, FLOP düzeltmesini yayınlayana kadar bunu
+> gideriyor. Ayrıca her tur yaklaşık 1,31 test FLOP işlem ücreti tutuyor, 17. adımdaki nota bakın.
+>
 > **Güncelleme, 9 Kasım 2026:** Worker gönderdiği bir işlemin sonucunu doğrulayamadığında, örneğin
 > RPC bağlantısı koptuğunda, kendini kilitliyor (`miner signer is fenced`) ve yeni oturum almıyor.
 > Bu kilit kendiliğinden hiç açılmıyor. [18. adımdaki](#18-kilit-açıcıyı-kurma) açıcı, zincir
@@ -46,8 +51,8 @@ Kayıt için gereken stake'i ağ karşılar, sizin FLOP satın almanız veya yat
 > [!NOTE]
 > Bu rehberin ilk 17 adımı 3 Kasım 2026'da Vast.ai üzerinde iki ayrı Ubuntu 22.04 VM'de, 1x RTX
 > 5090 ve 1x RTX 5060 Ti ile baştan sona denendi. İkisi de kalibrasyondan geçti. Görsellerdeki
-> çıktılar RTX 5090 kurulumundan alındı. 18. adım 9 Kasım 2026'da eklendi ve çalışan bir RTX
-> 5060 Ti miner'ında denendi.
+> çıktılar RTX 5090 kurulumundan alındı. 18. ve 19. adımlar 9 ve 10 Kasım 2026'da eklendi ve
+> çalışan bir RTX 5060 Ti miner'ında denendi.
 
 ---
 
@@ -585,6 +590,13 @@ hesabınıza geçer:
 compose logs worker | grep -E "\[session\] (open|settle|error)" | tail
 ```
 
+> [!NOTE]
+> Bir oturumun her turu, kanıt kaydı için yaklaşık 1,31 test FLOP işlem ücreti tutar. Bu, küçük
+> bir oturumun ödediğinden fazladır ([#163](https://github.com/flop-labs/network/issues/163)).
+> Gördüğümüz trafikle sponsorun ücretler için verdiği 250 test FLOP yaklaşık üç gün yetiyor ve
+> FLOP'un sponsorlu hesaplara tekrar yükleme yolu henüz yok
+> ([#175](https://github.com/flop-labs/network/issues/175)).
+
 ---
 
 ## 18. Kilit Açıcıyı Kurma
@@ -629,6 +641,42 @@ olmadığını gösterir:
 - Açıcı worker v0.1.286 ister, bu rehberdeki sürüm de budur. Kurulumu 8 Kasım'dan önce
   yaptıysanız önce [bu düzeltmeyi](#v2-leaf-cannot-bind-a-toploc-activation-commitment-fail-closed)
   uygulayın.
+
+---
+
+## 19. Worker v0.1.286 Hız Yaması
+
+Worker v0.1.286 her oturum açılışında ve her turda baştan bir kalibrasyon kontrolü yapar. Bu
+kontrol bütün miner'ların kalibrasyon işlerini FLOP'un herkese açık RPC'sinden okur ve testimizde
+13-28 saniye sürdü. FLOP'un ağ geçidi bu kadar beklemeyip birçok oturumu bırakıyor, bu oturumlar
+da explorer'da `Closed` görünüyor. FLOP bunu henüz yayınlanmamış yeni bir worker sürümünde
+düzeltti ([#168](https://github.com/flop-labs/network/issues/168)).
+
+O zamana kadar bu betik, worker'ın zaten 30 saniyede bir yenilediği kalibrasyon bilgisini
+kullanmasını sağlar. Ayrıca başarısız bir kanıt yüklemesinde kayıt ücretinin iki kez ödenmesini
+önler ve kanıtın geri okunmasını bir kez daha dener
+([#172](https://github.com/flop-labs/network/issues/172)).
+
+```bash
+cd /opt/flop-miner
+curl -fsSL -o patch-worker.sh https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/worker-patch/patch-worker.sh
+bash patch-worker.sh
+```
+
+Worker'ın yamalı dosyayı çalıştırdığını kontrol edin:
+
+```bash
+compose exec -T worker sha256sum /repo/sdk/miner-worker/miner-worker.mjs
+```
+
+Çıkan değer `patched file:` satırıyla aynı olmalıdır:
+
+![Worker yaması](assets/23-term-worker-patch.png)
+
+- Betik yalnızca worker v0.1.286 ile çalışır. Bir şeyi değiştirmeden önce FLOP'un orijinal
+  dosyasını doğrular ve bir kopyasını `/opt/flop-miner/patches` klasöründe saklar.
+- Daha yeni bir worker'a geçmeden önce yamayı geri alın:
+  `bash /opt/flop-miner/patch-worker.sh --undo`
 
 ---
 
@@ -683,13 +731,15 @@ Loglardan `CTRL + C` ile çıkabilirsiniz, programlar çalışmaya devam eder.
 
 ## Sürüm Güncelleme
 
-1. https://flop.network/releases.json adresinden `cli`, `miner-worker` ve `miner-vllm-toploc`
+1. 19. adımı uyguladıysanız önce yamayı geri alın: `bash /opt/flop-miner/patch-worker.sh --undo`.
+   Yama yalnızca worker v0.1.286 içindir.
+2. https://flop.network/releases.json adresinden `cli`, `miner-worker` ve `miner-vllm-toploc`
    için yeni `image` değerlerini alın. Bu liste zincirin gerisinde kalabilir: 7 Kasım 2026'da
    hâlâ artık çalışmayan CLI v0.1.220'yi gösteriyordu. Emin değilseniz bu rehberin
    `miner.env.example` dosyasındaki satırları kullanın.
-2. `/opt/flop-miner/miner.env` içindeki `FLOP_CLI`, `FLOP_WORKER_IMAGE` ve
+3. `/opt/flop-miner/miner.env` içindeki `FLOP_CLI`, `FLOP_WORKER_IMAGE` ve
    `FLOP_BACKEND_IMAGE` satırlarını değiştirin.
-3. Yeni sürümleri indirip programları yeniden başlatın:
+4. Yeni sürümleri indirip programları yeniden başlatın:
 
 ```bash
 source ~/.bashrc && docker pull "$FLOP_CLI" && compose pull && compose up -d
@@ -798,6 +848,13 @@ edin. Daha eski sürücülü bir makinede bu program çalışmaz.
 Miner henüz kalibre olmamıştır. Kalibrasyon tamamlanana kadar bu normaldir. Cevapta
 `miner signer is fenced` yazıyorsa [bu maddeye](#miner-signer-is-fenced) bakın.
 
+### Explorer'da oturumların çoğu `Closed` görünüyor
+
+Bunların çoğu, FLOP'un ağ geçidinin neredeyse hiç para koymadan açtığı deneme oturumlarıdır
+(explorer'da `0.0000 FLOP`). Devnet'te 48 saatte 153 miner'a bunlardan yaklaşık 9.000 tane açıldı
+ve hiçbir miner'da hiçbiri ödenmedi, yani bunlar için yapılacak bir şey yoktur. Gerçek para olan
+oturumlar da kapanıyorsa [19. adımı](#19-worker-v01286-hız-yaması) uygulayın.
+
 ---
 
 ## Güvenlik
@@ -849,6 +906,12 @@ açıldıktan yaklaşık bir dakika sonra ödendi. 9 Kasım'da Türkiye saatiyle
 bağlantısı koptu ve worker kendini kilitledi. Yaklaşık 4 saat oturum almadı. 18. adımdaki açıcı,
 işlemin zincire hiç girmediğini ve artık giremeyeceğini zincirden doğruladı ve kilidi 10:54'te
 açtı. Sonraki oturum 2 dakika sonra açıldı ve 10:57'de ödendi.
+
+10 Kasım 2026'da FLOP'un ağ geçidi oturum açılışlarının birçoğunu yarıda kesiyordu (Türkiye
+saatiyle 14:00'e kadar 20 tane) ve oturumun açılışından ilk tura kadar geçen ortanca süre 14,8
+saniyeye çıkmıştı. Sunucuda ölçüldüğünde worker'ın oturum kapısı orijinal dosyayla 13-28 saniye,
+yamayla (19. adım) 8-84 milisaniye sürdü. Yamadan sonra ilk tur açılıştan 4-5 saniye sonra geldi
+ve sonraki oturumlar ödendi.
 
 ---
 
