@@ -589,7 +589,7 @@ compose logs worker | grep -E "\[session\] (open|settle|error)" | tail
 > [!NOTE]
 > Each turn of a session costs about 1.31 test FLOP in fees for its evidence record, more than a
 > small session pays ([#163](https://github.com/flop-labs/network/issues/163)). At the traffic we
-> saw, the 250 test FLOP the sponsor gives for fees lasts about three days, and FLOP has no top-up
+> saw, the 250 test FLOP the sponsor gives for fees lasts two to three days, and FLOP has no top-up
 > for sponsored accounts yet ([#175](https://github.com/flop-labs/network/issues/175)).
 
 ---

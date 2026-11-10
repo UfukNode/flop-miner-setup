@@ -593,7 +593,7 @@ compose logs worker | grep -E "\[session\] (open|settle|error)" | tail
 > [!NOTE]
 > Bir oturumun her turu, kanıt kaydı için yaklaşık 1,31 test FLOP işlem ücreti tutar. Bu, küçük
 > bir oturumun ödediğinden fazladır ([#163](https://github.com/flop-labs/network/issues/163)).
-> Gördüğümüz trafikle sponsorun ücretler için verdiği 250 test FLOP yaklaşık üç gün yetiyor ve
+> Gördüğümüz trafikle sponsorun ücretler için verdiği 250 test FLOP 2-3 gün yetiyor ve
 > FLOP'un sponsorlu hesaplara tekrar yükleme yolu henüz yok
 > ([#175](https://github.com/flop-labs/network/issues/175)).
 
