@@ -6,3 +6,4 @@ models/
 miner.json
 *.seed
 .DS_Store
+audit-key/

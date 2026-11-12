@@ -50,6 +50,8 @@ services:
       SESSION_PORT: "8645"
       SESSION_CHAIN: "1"
       SESSION_COMMIT_IDS: "1"
+      SESSION_AUDIT_EVIDENCE_DIR: /data/audit-evidence
+      SESSION_AUDIT_EVIDENCE_KEY_FILE: /run/flop/audit-key/evidence.key
       SESSION_AUTH_TOKEN: ${SESSION_AUTH_TOKEN:?set SESSION_AUTH_TOKEN in miner.env}
       SESSION_PUBLIC_HOST: ${SESSION_PUBLIC_HOST}
       GHOST_MAILBOX_URL: ${GHOST_MAILBOX_URL}
@@ -57,6 +59,7 @@ services:
     volumes:
       - ./signer:/run/flop/signer:ro
       - ./session-keys/enclave.seed:/run/flop/enclave.seed:ro
+      - ./audit-key:/run/flop/audit-key:ro
       - ./models/qwen2.5-0.5b-instruct:/models/checkpoint:ro
       - worker-data:/data
     ports:

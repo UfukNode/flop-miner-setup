@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Speed patch for FLOP miner-worker v0.1.286, until FLOP publishes a worker with its own fix.
 #
+# Not needed any more: worker v0.1.336 (12 Nov 2026) has FLOP's own fix. If you applied this patch,
+# run `bash patch-worker.sh --undo` before updating (see "Updating to a New Release" in the guide).
+#
 # Worker v0.1.286 runs a full calibration check on every /session/open and /session/turn. The check
 # reads every miner's calibration jobs from the public RPC (about 5,700 records on 10 Nov 2026) and
 # took 11-19 seconds, so FLOP's gateway gave up on many sessions (flop-labs/network #168). FLOP fixed
