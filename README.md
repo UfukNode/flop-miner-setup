@@ -3,10 +3,12 @@
 **English** | [Türkçe](Turkce-Kurulum.md)
 
 > [!WARNING]
-> **Update, 10 November 2026:** worker v0.1.286 answers sessions slowly, so FLOP's gateway gives
-> up on many of them and they show as `Closed`. [Step 19](#19-speed-patch-for-worker-v01286)
-> patches this until FLOP releases its fix. Each session turn also costs about 1.31 test FLOP in
-> fees; see the note in step 17.
+> **Update, 12 November 2026:** the guide now uses worker v0.1.336, FLOP's newest release. It
+> answers sessions quickly, so the old speed patch is no longer needed. But it takes paid sessions
+> only with an encrypted evidence store: without one, every session gets
+> `503 session evidence publication unavailable`. Step 9 and the guide's `docker-compose.yml` now
+> set this up, and [step 19](#19-install-the-tunnel-watch) keeps the tunnel address up to date. If
+> you set up before this date, follow [Updating to a New Release](#updating-to-a-new-release).
 >
 > **Update, 9 November 2026:** when the worker cannot confirm a transaction it sent, for example
 > because the RPC connection dropped, it locks itself (`miner signer is fenced`) and takes no new
@@ -16,7 +18,7 @@
 > **Update, 8 November 2026:** the worker was missing the `SESSION_COMMIT_IDS` setting, which
 > FLOP's miner docs leave out. Without it, sessions stop with
 > `V2 leaf cannot bind a TOPLOC activation commitment (fail closed)` and the miner is never paid.
-> The guide now adds this setting and uses worker v0.1.286. If you set up before this date, apply
+> The guide's files now have this setting. If you set up before this date, apply
 > [this fix](#v2-leaf-cannot-bind-a-toploc-activation-commitment-fail-closed).
 >
 > **Update, 7 November 2026:** the devnet moved to runtime version 1014014 at 05:23 UTC. CLI
@@ -50,8 +52,9 @@ have to buy or deposit any FLOP.
 > [!NOTE]
 > Steps 1 to 17 were tested end to end on 3 November 2026 on two separate Ubuntu 22.04 VMs on
 > Vast.ai, one with 1x RTX 5090 and one with 1x RTX 5060 Ti. Both passed calibration. The outputs
-> in the images come from the RTX 5090 setup. Steps 18 and 19 were added on 9 and 10 November 2026
-> and tested on a running RTX 5060 Ti miner.
+> in the images come from the RTX 5090 setup. Step 18 was added on 9 November 2026 and tested on a
+> running RTX 5060 Ti miner. Worker v0.1.336 with the evidence store and step 19 were tested on
+> 12 November 2026 on a running RTX 3090 miner.
 
 ---
 
@@ -328,6 +331,15 @@ install -d -m 700 /opt/flop-miner/session-keys
 sh -c 'umask 077; openssl rand -hex 32 > /opt/flop-miner/session-keys/enclave.seed'
 ```
 
+Create the evidence key. From worker v0.1.336 on, the worker keeps the evidence of every paid
+session in an encrypted store and takes paid sessions only when it has one. This file is the key
+of that store:
+
+```bash
+install -d -m 700 /opt/flop-miner/audit-key
+sh -c 'umask 077; openssl rand -hex 32 > /opt/flop-miner/audit-key/evidence.key'
+```
+
 > [!CAUTION]
 > The `signer` file is your miner account itself. Never send it to anyone, never take a
 > screenshot of it and never upload it to GitHub. If the worker cannot find this file, it tries
@@ -461,7 +473,8 @@ grep '^SESSION_PUBLIC_HOST=' /opt/flop-miner/miner.env
 
 > [!NOTE]
 > This free tunnel gets a new address whenever the tunnel restarts. If it changes, run the last
-> three commands again and restart the worker with `compose up -d worker`.
+> three commands again and restart the worker with `compose up -d worker`, or install the tunnel
+> watch from [step 19](#19-install-the-tunnel-watch), which does this for you.
 
 ---
 
@@ -479,6 +492,7 @@ Check these lines in the log:
 
 | Line | Meaning |
 | --- | --- |
+| `Image: version 0.1.336` | The worker version |
 | `Signer: 5...` | Must be the miner address you created in step 9 |
 | `[ghost] published ghost key` | The key the network sends test jobs to is published |
 | `model-gate OK` | The model matches the record on the chain |
@@ -497,6 +511,17 @@ curl -s -o /dev/null -w "%{http_code}\n" https://YOUR-TUNNEL-ADDRESS/session/inf
 ```
 
 A `401` answer is normal. It means the address works and refuses requests without a key.
+
+On the server, check that the worker can take paid sessions:
+
+```bash
+T=$(grep '^SESSION_AUTH_TOKEN=' /opt/flop-miner/miner.env | cut -d= -f2)
+curl -s -H "Authorization: Bearer $T" http://127.0.0.1:8645/session/info | jq '{is_ready, audit_handoff_enabled}'
+```
+
+`audit_handoff_enabled` must be `true`; if it is `false`, the evidence store is missing (see
+[this entry](#session-evidence-publication-unavailable)). `is_ready` becomes `true` once
+calibration is accepted in step 17.
 
 Check the miner's status on the chain:
 
@@ -601,15 +626,17 @@ connection dropped while it was waiting, it locks itself to stay safe. The log t
 `miner signer is fenced`, new sessions get `503` and the miner is not paid. The lock never opens
 by itself, and a restart does not open it.
 
-This guard checks the worker every 2 minutes. When the worker is locked, the guard asks the chain
-whether the stuck transaction can still go through. Only when it cannot does the guard keep a copy
-of the lock file, remove the lock and restart the worker.
+This guard checks the worker every 2 minutes. When the worker is locked, it first asks the worker
+to prove on the chain what happened to the stuck transaction: worker v0.1.336 and later keep the
+signed transaction in the lock file, check it themselves and unlock without a restart. For older
+workers, the guard asks the chain whether the stuck transaction can still go through. Only when it
+cannot does the guard keep a copy of the lock file, remove the lock and restart the worker.
 
 ```bash
 U=https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/fence-guard
 install -d -m 700 /opt/flop-miner/fence-guard
 cd /opt/flop-miner/fence-guard
-curl -fsSL --remote-name-all "$U"/{fence-guard.sh,status.mjs,recover.mjs,reconcile.mjs}
+curl -fsSL --remote-name-all "$U"/{fence-guard.sh,status.mjs,recover.mjs,reconcile.mjs,worker-reconcile.mjs}
 chmod +x fence-guard.sh
 curl -fsSL -o /etc/systemd/system/flop-fence-guard.service "$U/flop-fence-guard.service"
 curl -fsSL -o /etc/systemd/system/flop-fence-guard.timer "$U/flop-fence-guard.timer"
@@ -628,46 +655,49 @@ The timer should show its next run, and `"fenced": false` means the worker is no
 
 ![The fence guard](assets/22-term-fence-guard.png)
 
-- The guard opens the lock only after the stuck transaction's lifetime on the chain (512 blocks,
-  about 9 minutes) has passed, nothing from the miner account is pending and no session is open.
-  It waits at most 90 minutes for open sessions. A lock usually opens in about 20 minutes. The
-  guard writes what it does to `/opt/flop-miner/fence-guard/guard.log`.
-- It needs worker v0.1.286, the version in this guide. If you set up before 8 November, apply
-  [this fix](#v2-leaf-cannot-bind-a-toploc-activation-commitment-fail-closed) first.
+- With worker v0.1.336, a transaction lives 64 blocks on the chain, so the worker can prove its
+  outcome soon after it expires. With older workers, the guard opens the lock only after the stuck
+  transaction's lifetime (512 blocks, about 9 minutes) has passed, nothing from the miner account
+  is pending and no session is open, and it waits at most 90 minutes for open sessions.
+- The guard writes what it does to `/opt/flop-miner/fence-guard/guard.log`.
+- If you installed the guard before 12 November, run the commands above again to get
+  `worker-reconcile.mjs`.
 
 ---
 
-## 19. Speed Patch for Worker v0.1.286
+## 19. Install the Tunnel Watch
 
-Worker v0.1.286 runs a full calibration check every time a session opens and on every turn. The
-check reads every miner's calibration jobs from FLOP's public RPC and took 13-28 seconds in our
-test, so FLOP's gateway gave up on many sessions, which then show as `Closed` in the explorer.
-FLOP has fixed this in a newer worker build that is not released yet
-([#168](https://github.com/flop-labs/network/issues/168)).
+The free tunnel from step 13 gets a new address every time it restarts, for example when the
+server reboots. The worker then keeps announcing the old address and gets no sessions until the
+new one is written into `miner.env`.
 
-Until then, this script makes the worker use the calibration status it already refreshes every 30
-seconds. It also stops a failed evidence upload from paying the registration fee twice, and it
-tries the evidence read-back once more ([#172](https://github.com/flop-labs/network/issues/172)).
+This timer checks every minute. When the tunnel has a new address, it writes it into `miner.env`
+and restarts the worker. When the worker answers on the server but not through the tunnel 3
+checks in a row, it restarts the tunnel and does the same.
 
 ```bash
-cd /opt/flop-miner
-curl -fsSL -o patch-worker.sh https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/worker-patch/patch-worker.sh
-bash patch-worker.sh
+U=https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/tunnel-watch
+install -d -m 755 /opt/flop-miner/tunnel-watch
+curl -fsSL -o /opt/flop-miner/tunnel-watch/tunnel-watch.sh "$U/tunnel-watch.sh"
+chmod +x /opt/flop-miner/tunnel-watch/tunnel-watch.sh
+curl -fsSL -o /etc/systemd/system/flop-tunnel-watch.service "$U/flop-tunnel-watch.service"
+curl -fsSL -o /etc/systemd/system/flop-tunnel-watch.timer "$U/flop-tunnel-watch.timer"
+systemctl daemon-reload
+systemctl enable --now flop-tunnel-watch.timer
 ```
 
-Check that the worker runs the patched file:
+Check that it runs:
 
 ```bash
-compose exec -T worker sha256sum /repo/sdk/miner-worker/miner-worker.mjs
+systemctl list-timers flop-tunnel-watch.timer --no-pager
+journalctl -u flop-tunnel-watch -o cat --no-pager | grep -E "tunnel address|outside check|restarting" | tail -3
 ```
 
-The value should match the `patched file:` line:
+The timer should show its next run. After an address change, the log shows
+`tunnel address OLD -> NEW, worker recreated`.
 
-![The worker patch](assets/23-term-worker-patch.png)
-
-- The script works only with worker v0.1.286. It checks FLOP's original file before changing
-  anything and keeps a copy of it in `/opt/flop-miner/patches`.
-- Before moving to a newer worker, undo it: `bash /opt/flop-miner/patch-worker.sh --undo`
+- It restarts the worker only under the fence guard's lock, so the two never run at the same time.
+- If the worker itself is down, it leaves the tunnel alone; Docker restarts the worker.
 
 ---
 
@@ -722,29 +752,45 @@ Leave the logs with `CTRL + C`; the programs keep running.
 
 ## Updating to a New Release
 
-1. If you applied step 19, undo it first: `bash /opt/flop-miner/patch-worker.sh --undo`. The
-   patch is only for worker v0.1.286.
+1. If you applied the old speed patch (step 19 before 12 November), undo it first:
+   `bash /opt/flop-miner/patch-worker.sh --undo`. Worker v0.1.336 already has FLOP's own fix.
 2. Get the new `image` values for `cli`, `miner-worker` and `miner-vllm-toploc` from
    https://flop.network/releases.json. The list can fall behind the chain: on 7 November 2026 it
    still named CLI v0.1.220, which no longer works. When in doubt, use the lines in this guide's
    `miner.env.example`.
 3. Change the `FLOP_CLI`, `FLOP_WORKER_IMAGE` and `FLOP_BACKEND_IMAGE` lines in
    `/opt/flop-miner/miner.env`.
-4. Download the new versions and restart the programs:
+4. Worker v0.1.336 and later need the evidence store. If your `docker-compose.yml` has no
+   `SESSION_AUDIT_EVIDENCE_DIR` line, create the key and take this guide's new compose file. The
+   commands keep a copy of your old file:
+
+```bash
+cd /opt/flop-miner
+install -d -m 700 audit-key
+[ -s audit-key/evidence.key ] || sh -c 'umask 077; openssl rand -hex 32 > audit-key/evidence.key'
+cp docker-compose.yml docker-compose.yml.bak
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/docker-compose.yml
+```
+
+If you changed your compose file yourself, copy the two `SESSION_AUDIT_EVIDENCE_` lines and the
+`./audit-key` line from this guide's file into yours instead.
+
+5. Download the new versions and restart the programs:
 
 ```bash
 source ~/.bashrc && docker pull "$FLOP_CLI" && compose pull && compose up -d
 ```
 
-Keep the `signer` file, the `session-keys` folder and the `worker-data` volume. Do not use
-`compose down -v`: it deletes the calibration data.
+Then run the check from [step 15](#15-check-everything): `audit_handoff_enabled` must be `true`.
+Keep the `signer` file, the `session-keys` and `audit-key` folders and the `worker-data` volume. Do
+not use `compose down -v`: it deletes the calibration data.
 
 ---
 
 ## Before You Shut Down the Vast.ai Server
 
 - Make sure you have a backup of the 24 words in `/opt/flop-miner/signer` and of the
-  `session-keys/enclave.seed` file.
+  `session-keys/enclave.seed` and `audit-key/evidence.key` files.
 - **Stop** pauses the GPU cost; the disk cost continues.
 - **Destroy** deletes the server and all its files. The stake stays in your miner account. You can
   continue on a new server with the same `signer`. The sponsor registers each account only once.
@@ -769,19 +815,16 @@ Then run the step that failed again. The worker and the backend need no change f
 ### `V2 leaf cannot bind a TOPLOC activation commitment (fail closed)`
 
 Sessions open but the miner is never paid, and the worker log shows this error. The worker is
-missing the `SESSION_COMMIT_IDS` setting. Add it, move to worker v0.1.286 and restart the worker:
+missing the `SESSION_COMMIT_IDS` setting, which this guide's `docker-compose.yml` has. Follow
+[Updating to a New Release](#updating-to-a-new-release); step 4 there takes the guide's compose
+file. Then check:
 
 ```bash
-cd /opt/flop-miner
-grep -q SESSION_COMMIT_IDS docker-compose.yml || sed -i 's/^      SESSION_CHAIN: "1"$/&\n      SESSION_COMMIT_IDS: "1"/' docker-compose.yml
-sed -i 's#^FLOP_WORKER_IMAGE=.*#FLOP_WORKER_IMAGE=ghcr.io/flop-labs/flop-core/miner-worker:v0.1.286@sha256:78211fe5f63820eeb1191e834f3a1eb7f573bc34348bdd4c0b0f07c7824fe7b5#' miner.env
-compose pull worker
-compose up -d worker
 compose exec -T worker printenv SESSION_COMMIT_IDS
 ```
 
-The last command should print `1`. In the test, the first session after this change was paid
-about a minute after it opened.
+It should print `1`. In the test, the first session after this change was paid about a minute
+after it opened.
 
 ### `miner signer is fenced`
 
@@ -833,25 +876,34 @@ Write the address in `miner.env` without `https://` at the start and in lowercas
 Check in the `nvidia-smi` output that the driver is 580 or newer and CUDA is 13.0 or newer. This
 program does not run on a machine with an older driver.
 
+### `session evidence publication unavailable`
+
+Worker v0.1.336 and later answer every session with this `503` when they have no encrypted
+evidence store. The check in [step 15](#15-check-everything) then shows
+`"audit_handoff_enabled": false`. Follow step 4 of
+[Updating to a New Release](#updating-to-a-new-release).
+
 ### `/session/open` returns `503`
 
 The miner is not calibrated yet. This is normal until calibration completes. If the answer says
-`miner signer is fenced`, see [this entry](#miner-signer-is-fenced).
+`miner signer is fenced`, see [this entry](#miner-signer-is-fenced). If it says
+`session evidence publication unavailable`, see
+[this entry](#session-evidence-publication-unavailable).
 
 ### Most sessions show as `Closed` in the explorer
 
 Most of them are test sessions that FLOP's gateway opens with almost no money (`0.0000 FLOP` in
 the explorer). In 48 hours on the devnet, about 9,000 of them went to 153 miners and none was paid,
-on any miner, so they need no fix. If sessions with real money also close, apply
-[step 19](#19-speed-patch-for-worker-v01286).
+on any miner, so they need no fix. If sessions with real money also close, make sure you run
+worker v0.1.336 or later (see [Updating to a New Release](#updating-to-a-new-release)).
 
 ---
 
 ## Security
 
 - Use a separate account for the miner. Never put your main wallet on any server.
-- `signer`, `miner.json`, the keystore password, `SESSION_AUTH_TOKEN` and `INFERENCE_API_KEY`
-  stay on the server. Never share them with anyone.
+- `signer`, `miner.json`, the keystore password, `audit-key/evidence.key`, `SESSION_AUTH_TOKEN`
+  and `INFERENCE_API_KEY` stay on the server. Never share them with anyone.
 - The worker's port 8645 and the backend's port 8000 are not open to the outside. Only the tunnel
   address is visible from outside, and it refuses requests without a key.
 - FLOP never asks for your seed phrase. FLOP has no official Discord or Telegram channel.

@@ -3,10 +3,13 @@
 **Türkçe** | [English](README.md)
 
 > [!WARNING]
-> **Güncelleme, 10 Kasım 2026:** Worker v0.1.286 oturumlara geç cevap veriyor. FLOP'un ağ geçidi
-> bu yüzden oturumların birçoğunu bırakıyor ve bunlar explorer'da `Closed` görünüyor.
-> [19. adımdaki](#19-worker-v01286-hız-yaması) yama, FLOP düzeltmesini yayınlayana kadar bunu
-> gideriyor. Ayrıca her tur yaklaşık 1,31 test FLOP işlem ücreti tutuyor, 17. adımdaki nota bakın.
+> **Güncelleme, 12 Kasım 2026:** Rehber artık FLOP'un en yeni sürümü olan worker v0.1.336'yı
+> kullanıyor. Bu sürüm oturumlara hızlı cevap veriyor, bu yüzden eski hız yamasına gerek kalmadı.
+> Ama ücretli oturumları yalnızca şifreli bir kanıt deposu varsa alıyor: depo yoksa her oturum
+> `503 session evidence publication unavailable` cevabı alıyor. 9. adım ve rehberin
+> `docker-compose.yml` dosyası bu depoyu artık kuruyor, [19. adımdaki](#19-tünel-bekçisini-kurma)
+> bekçi de tünel adresini güncel tutuyor. Kurulumu bu tarihten önce yaptıysanız
+> [Sürüm Güncelleme](#sürüm-güncelleme) bölümünü uygulayın.
 >
 > **Güncelleme, 9 Kasım 2026:** Worker gönderdiği bir işlemin sonucunu doğrulayamadığında, örneğin
 > RPC bağlantısı koptuğunda, kendini kilitliyor (`miner signer is fenced`) ve yeni oturum almıyor.
@@ -17,7 +20,7 @@
 > **Güncelleme, 8 Kasım 2026:** Worker'da, FLOP'un miner dokümanında yer almayan
 > `SESSION_COMMIT_IDS` ayarı eksikti. Bu ayar olmadan oturumlar
 > `V2 leaf cannot bind a TOPLOC activation commitment (fail closed)` hatasıyla duruyor ve miner
-> hiç ödeme almıyor. Rehber artık bu ayarı ekliyor ve worker v0.1.286 kullanıyor. Kurulumu bu
+> hiç ödeme almıyor. Rehberin dosyalarında bu ayar artık var. Kurulumu bu
 > tarihten önce yaptıysanız
 > [bu düzeltmeyi](#v2-leaf-cannot-bind-a-toploc-activation-commitment-fail-closed) uygulayın.
 >
@@ -51,8 +54,9 @@ Kayıt için gereken stake'i ağ karşılar, sizin FLOP satın almanız veya yat
 > [!NOTE]
 > Bu rehberin ilk 17 adımı 3 Kasım 2026'da Vast.ai üzerinde iki ayrı Ubuntu 22.04 VM'de, 1x RTX
 > 5090 ve 1x RTX 5060 Ti ile baştan sona denendi. İkisi de kalibrasyondan geçti. Görsellerdeki
-> çıktılar RTX 5090 kurulumundan alındı. 18. ve 19. adımlar 9 ve 10 Kasım 2026'da eklendi ve
-> çalışan bir RTX 5060 Ti miner'ında denendi.
+> çıktılar RTX 5090 kurulumundan alındı. 18. adım 9 Kasım 2026'da eklendi ve çalışan bir RTX
+> 5060 Ti miner'ında denendi. Kanıt deposuyla worker v0.1.336 ve 19. adım 12 Kasım 2026'da
+> çalışan bir RTX 3090 miner'ında denendi.
 
 ---
 
@@ -330,6 +334,14 @@ install -d -m 700 /opt/flop-miner/session-keys
 sh -c 'umask 077; openssl rand -hex 32 > /opt/flop-miner/session-keys/enclave.seed'
 ```
 
+Kanıt anahtarını oluşturun. Worker v0.1.336'dan itibaren her ücretli oturumun kanıtını şifreli
+bir depoda tutar ve bu depo yoksa ücretli oturum almaz. Bu dosya o deponun anahtarıdır:
+
+```bash
+install -d -m 700 /opt/flop-miner/audit-key
+sh -c 'umask 077; openssl rand -hex 32 > /opt/flop-miner/audit-key/evidence.key'
+```
+
 > [!CAUTION]
 > `signer` dosyası miner hesabınızın kendisidir. Kimseye göndermeyin, ekran görüntüsünü
 > almayın ve GitHub'a yüklemeyin. Worker bu dosyayı bulamazsa FLOP'un herkese açık test
@@ -465,7 +477,8 @@ grep '^SESSION_PUBLIC_HOST=' /opt/flop-miner/miner.env
 
 > [!NOTE]
 > Bu ücretsiz tünelin adresi tünel yeniden başladığında değişir. Değişirse son üç komutu
-> tekrar çalıştırın ve worker'ı `compose up -d worker` ile yeniden başlatın.
+> tekrar çalıştırın ve worker'ı `compose up -d worker` ile yeniden başlatın. Bunu sizin yerinize
+> yapan bekçiyi [19. adımda](#19-tünel-bekçisini-kurma) kurabilirsiniz.
 
 ---
 
@@ -483,6 +496,7 @@ Logda şu satırları kontrol edin:
 
 | Satır | Anlamı |
 | --- | --- |
+| `Image: version 0.1.336` | Worker'ın sürümü |
 | `Signer: 5...` | 9. adımda oluşturduğunuz miner adresi olmalı |
 | `[ghost] published ghost key` | Ağın test işlerini göndereceği anahtar yayınlandı |
 | `model-gate OK` | Model, zincirdeki kayıtla aynı |
@@ -501,6 +515,17 @@ curl -s -o /dev/null -w "%{http_code}\n" https://TUNEL-ADRESINIZ/session/info
 ```
 
 `401` cevabı normaldir. Adres çalışıyor ve şifresiz isteği reddediyor demektir.
+
+Sunucuda, worker'ın ücretli oturum alabildiğini kontrol edin:
+
+```bash
+T=$(grep '^SESSION_AUTH_TOKEN=' /opt/flop-miner/miner.env | cut -d= -f2)
+curl -s -H "Authorization: Bearer $T" http://127.0.0.1:8645/session/info | jq '{is_ready, audit_handoff_enabled}'
+```
+
+`audit_handoff_enabled` değeri `true` olmalıdır. `false` ise kanıt deposu eksiktir
+([bu maddeye](#session-evidence-publication-unavailable) bakın). `is_ready` değeri 17. adımda
+kalibrasyon kabul edilince `true` olur.
 
 Miner'ın zincirdeki durumuna bakın:
 
@@ -606,15 +631,18 @@ koparsa, güvenlik için kendini kilitler. Logda `miner signer is fenced` yazar,
 `503` alır ve miner ödeme almaz. Bu kilit kendiliğinden hiç açılmaz, worker'ı yeniden başlatmak
 da açmaz.
 
-Bu açıcı worker'ı 2 dakikada bir kontrol eder. Worker kilitliyse, takılan işlemin zincire hâlâ
-girip giremeyeceğine zincirden bakar. Yalnızca giremeyeceği kesinleşince kilit dosyasının bir
-kopyasını saklar, kilidi kaldırır ve worker'ı yeniden başlatır.
+Bu açıcı worker'ı 2 dakikada bir kontrol eder. Worker kilitliyse, önce takılan işlemin sonucunu
+zincirden kanıtlamasını worker'ın kendisinden ister: worker v0.1.336 ve sonrası imzalı işlemi
+kilit dosyasında tutar, kendisi kontrol eder ve yeniden başlamadan kilidi açar. Daha eski
+worker'larda açıcı, takılan işlemin zincire hâlâ girip giremeyeceğine zincirden kendisi bakar.
+Yalnızca giremeyeceği kesinleşince kilit dosyasının bir kopyasını saklar, kilidi kaldırır ve
+worker'ı yeniden başlatır.
 
 ```bash
 U=https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/fence-guard
 install -d -m 700 /opt/flop-miner/fence-guard
 cd /opt/flop-miner/fence-guard
-curl -fsSL --remote-name-all "$U"/{fence-guard.sh,status.mjs,recover.mjs,reconcile.mjs}
+curl -fsSL --remote-name-all "$U"/{fence-guard.sh,status.mjs,recover.mjs,reconcile.mjs,worker-reconcile.mjs}
 chmod +x fence-guard.sh
 curl -fsSL -o /etc/systemd/system/flop-fence-guard.service "$U/flop-fence-guard.service"
 curl -fsSL -o /etc/systemd/system/flop-fence-guard.timer "$U/flop-fence-guard.timer"
@@ -634,49 +662,50 @@ olmadığını gösterir:
 
 ![Kilit açıcı](assets/22-term-fence-guard.png)
 
-- Açıcı kilidi yalnızca takılan işlemin zincirdeki ömrü (512 blok, yaklaşık 9 dakika) dolunca,
-  miner hesabından bekleyen işlem kalmayınca ve açık oturum olmayınca açar. Açık oturumları en
-  fazla 90 dakika bekler. Kilit genellikle 20 dakika içinde açılır. Açıcı yaptıklarını
-  `/opt/flop-miner/fence-guard/guard.log` dosyasına yazar.
-- Açıcı worker v0.1.286 ister, bu rehberdeki sürüm de budur. Kurulumu 8 Kasım'dan önce
-  yaptıysanız önce [bu düzeltmeyi](#v2-leaf-cannot-bind-a-toploc-activation-commitment-fail-closed)
-  uygulayın.
+- Worker v0.1.336'da bir işlem zincirde 64 blok yaşar, bu yüzden worker sonucu işlemin ömrü
+  dolduktan kısa süre sonra kanıtlayabilir. Daha eski worker'larda açıcı kilidi yalnızca takılan
+  işlemin ömrü (512 blok, yaklaşık 9 dakika) dolunca, miner hesabından bekleyen işlem kalmayınca
+  ve açık oturum olmayınca açar. Açık oturumları en fazla 90 dakika bekler.
+- Açıcı yaptıklarını `/opt/flop-miner/fence-guard/guard.log` dosyasına yazar.
+- Açıcıyı 12 Kasım'dan önce kurduysanız `worker-reconcile.mjs` dosyasını almak için yukarıdaki
+  komutları tekrar çalıştırın.
 
 ---
 
-## 19. Worker v0.1.286 Hız Yaması
+## 19. Tünel Bekçisini Kurma
 
-Worker v0.1.286 her oturum açılışında ve her turda baştan bir kalibrasyon kontrolü yapar. Bu
-kontrol bütün miner'ların kalibrasyon işlerini FLOP'un herkese açık RPC'sinden okur ve testimizde
-13-28 saniye sürdü. FLOP'un ağ geçidi bu kadar beklemeyip birçok oturumu bırakıyor, bu oturumlar
-da explorer'da `Closed` görünüyor. FLOP bunu henüz yayınlanmamış yeni bir worker sürümünde
-düzeltti ([#168](https://github.com/flop-labs/network/issues/168)).
+13. adımdaki ücretsiz tünel her yeniden başladığında, örneğin sunucu yeniden açıldığında, yeni
+bir adres alır. Worker eski adresi duyurmaya devam eder ve yeni adres `miner.env` dosyasına
+yazılana kadar oturum almaz.
 
-O zamana kadar bu betik, worker'ın zaten 30 saniyede bir yenilediği kalibrasyon bilgisini
-kullanmasını sağlar. Ayrıca başarısız bir kanıt yüklemesinde kayıt ücretinin iki kez ödenmesini
-önler ve kanıtın geri okunmasını bir kez daha dener
-([#172](https://github.com/flop-labs/network/issues/172)).
+Bu zamanlayıcı her dakika kontrol eder. Tünelin adresi değiştiyse yeni adresi `miner.env`
+dosyasına yazar ve worker'ı yeniden başlatır. Worker sunucuda cevap verdiği hâlde tünel üzerinden
+üst üste 3 kontrolde cevap vermezse tüneli yeniden başlatır ve aynısını yapar.
 
 ```bash
-cd /opt/flop-miner
-curl -fsSL -o patch-worker.sh https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/worker-patch/patch-worker.sh
-bash patch-worker.sh
+U=https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/tunnel-watch
+install -d -m 755 /opt/flop-miner/tunnel-watch
+curl -fsSL -o /opt/flop-miner/tunnel-watch/tunnel-watch.sh "$U/tunnel-watch.sh"
+chmod +x /opt/flop-miner/tunnel-watch/tunnel-watch.sh
+curl -fsSL -o /etc/systemd/system/flop-tunnel-watch.service "$U/flop-tunnel-watch.service"
+curl -fsSL -o /etc/systemd/system/flop-tunnel-watch.timer "$U/flop-tunnel-watch.timer"
+systemctl daemon-reload
+systemctl enable --now flop-tunnel-watch.timer
 ```
 
-Worker'ın yamalı dosyayı çalıştırdığını kontrol edin:
+Çalıştığını kontrol edin:
 
 ```bash
-compose exec -T worker sha256sum /repo/sdk/miner-worker/miner-worker.mjs
+systemctl list-timers flop-tunnel-watch.timer --no-pager
+journalctl -u flop-tunnel-watch -o cat --no-pager | grep -E "tunnel address|outside check|restarting" | tail -3
 ```
 
-Çıkan değer `patched file:` satırıyla aynı olmalıdır:
+Zamanlayıcı bir sonraki çalışma saatini göstermelidir. Adres değiştikten sonra logda
+`tunnel address ESKI -> YENI, worker recreated` satırı görünür.
 
-![Worker yaması](assets/23-term-worker-patch.png)
-
-- Betik yalnızca worker v0.1.286 ile çalışır. Bir şeyi değiştirmeden önce FLOP'un orijinal
-  dosyasını doğrular ve bir kopyasını `/opt/flop-miner/patches` klasöründe saklar.
-- Daha yeni bir worker'a geçmeden önce yamayı geri alın:
-  `bash /opt/flop-miner/patch-worker.sh --undo`
+- Bekçi worker'ı yalnızca kilit açıcının kilidi altında yeniden başlatır, ikisi hiçbir zaman aynı
+  anda çalışmaz.
+- Worker'ın kendisi kapalıysa tünele dokunmaz, worker'ı Docker yeniden başlatır.
 
 ---
 
@@ -731,29 +760,46 @@ Loglardan `CTRL + C` ile çıkabilirsiniz, programlar çalışmaya devam eder.
 
 ## Sürüm Güncelleme
 
-1. 19. adımı uyguladıysanız önce yamayı geri alın: `bash /opt/flop-miner/patch-worker.sh --undo`.
-   Yama yalnızca worker v0.1.286 içindir.
+1. Eski hız yamasını (12 Kasım'dan önceki 19. adım) uyguladıysanız önce geri alın:
+   `bash /opt/flop-miner/patch-worker.sh --undo`. Worker v0.1.336'da FLOP'un kendi düzeltmesi
+   zaten var.
 2. https://flop.network/releases.json adresinden `cli`, `miner-worker` ve `miner-vllm-toploc`
    için yeni `image` değerlerini alın. Bu liste zincirin gerisinde kalabilir: 7 Kasım 2026'da
    hâlâ artık çalışmayan CLI v0.1.220'yi gösteriyordu. Emin değilseniz bu rehberin
    `miner.env.example` dosyasındaki satırları kullanın.
 3. `/opt/flop-miner/miner.env` içindeki `FLOP_CLI`, `FLOP_WORKER_IMAGE` ve
    `FLOP_BACKEND_IMAGE` satırlarını değiştirin.
-4. Yeni sürümleri indirip programları yeniden başlatın:
+4. Worker v0.1.336 ve sonrası kanıt deposu ister. `docker-compose.yml` dosyanızda
+   `SESSION_AUDIT_EVIDENCE_DIR` satırı yoksa anahtarı oluşturun ve rehberin yeni compose
+   dosyasını alın. Komutlar eski dosyanızın bir kopyasını saklar:
+
+```bash
+cd /opt/flop-miner
+install -d -m 700 audit-key
+[ -s audit-key/evidence.key ] || sh -c 'umask 077; openssl rand -hex 32 > audit-key/evidence.key'
+cp docker-compose.yml docker-compose.yml.bak
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/docker-compose.yml
+```
+
+Compose dosyanızı kendiniz değiştirdiyseniz bunun yerine rehberin dosyasındaki iki
+`SESSION_AUDIT_EVIDENCE_` satırını ve `./audit-key` satırını kendi dosyanıza ekleyin.
+
+5. Yeni sürümleri indirip programları yeniden başlatın:
 
 ```bash
 source ~/.bashrc && docker pull "$FLOP_CLI" && compose pull && compose up -d
 ```
 
-`signer` dosyasını, `session-keys` klasörünü ve `worker-data` alanını koruyun.
-`compose down -v` komutunu kullanmayın, kalibrasyon bilgileri silinir.
+Sonra [15. adımdaki](#15-kontrol-etme) kontrolü yapın: `audit_handoff_enabled` değeri `true`
+olmalıdır. `signer` dosyasını, `session-keys` ve `audit-key` klasörlerini ve `worker-data`
+alanını koruyun. `compose down -v` komutunu kullanmayın, kalibrasyon bilgileri silinir.
 
 ---
 
 ## Vast.ai Sunucusunu Kapatmadan Önce
 
-- `/opt/flop-miner/signer` içindeki 24 kelimenin ve `session-keys/enclave.seed` dosyasının
-  yedeğini aldığınızdan emin olun.
+- `/opt/flop-miner/signer` içindeki 24 kelimenin, `session-keys/enclave.seed` ve
+  `audit-key/evidence.key` dosyalarının yedeğini aldığınızdan emin olun.
 - **Stop** GPU ücretini durdurur, disk ücreti devam eder.
 - **Destroy** sunucuyu ve bütün dosyaları siler. Stake miner hesabınızda kalır. Aynı `signer`
   ile yeni bir sunucuda devam edebilirsiniz. Sponsor her hesaba bir kez kayıt yapar.
@@ -778,20 +824,16 @@ Ardından hata veren adımı tekrar çalıştırın. Worker ve backend için bir
 ### `V2 leaf cannot bind a TOPLOC activation commitment (fail closed)`
 
 Oturumlar açılıyor fakat miner hiç ödeme almıyor ve worker logunda bu hata görünüyor. Worker'da
-`SESSION_COMMIT_IDS` ayarı eksiktir. Ayarı ekleyin, worker v0.1.286'ya geçin ve worker'ı yeniden
-başlatın:
+`SESSION_COMMIT_IDS` ayarı eksiktir, bu rehberin `docker-compose.yml` dosyasında ise vardır.
+[Sürüm Güncelleme](#sürüm-güncelleme) bölümünü uygulayın, oradaki 4. adım rehberin compose
+dosyasını alır. Sonra kontrol edin:
 
 ```bash
-cd /opt/flop-miner
-grep -q SESSION_COMMIT_IDS docker-compose.yml || sed -i 's/^      SESSION_CHAIN: "1"$/&\n      SESSION_COMMIT_IDS: "1"/' docker-compose.yml
-sed -i 's#^FLOP_WORKER_IMAGE=.*#FLOP_WORKER_IMAGE=ghcr.io/flop-labs/flop-core/miner-worker:v0.1.286@sha256:78211fe5f63820eeb1191e834f3a1eb7f573bc34348bdd4c0b0f07c7824fe7b5#' miner.env
-compose pull worker
-compose up -d worker
 compose exec -T worker printenv SESSION_COMMIT_IDS
 ```
 
-Son komut `1` yazmalıdır. Testte bu değişiklikten sonraki ilk oturum, açıldıktan yaklaşık bir
-dakika sonra ödendi.
+Komut `1` yazmalıdır. Testte bu değişiklikten sonraki ilk oturum, açıldıktan yaklaşık bir dakika
+sonra ödendi.
 
 ### `miner signer is fenced`
 
@@ -843,25 +885,34 @@ ertesi gün deneyin. `503`: servis geçici olarak cevap vermiyor, bir süre sonr
 `nvidia-smi` çıktısında sürücünün 580 veya üzeri, CUDA'nın 13.0 veya üzeri olduğunu kontrol
 edin. Daha eski sürücülü bir makinede bu program çalışmaz.
 
+### `session evidence publication unavailable`
+
+Worker v0.1.336 ve sonrası, şifreli kanıt deposu yoksa her oturuma bu `503` cevabını verir.
+[15. adımdaki](#15-kontrol-etme) kontrol de `"audit_handoff_enabled": false` gösterir.
+[Sürüm Güncelleme](#sürüm-güncelleme) bölümündeki 4. adımı uygulayın.
+
 ### `/session/open` isteği `503` dönüyor
 
 Miner henüz kalibre olmamıştır. Kalibrasyon tamamlanana kadar bu normaldir. Cevapta
 `miner signer is fenced` yazıyorsa [bu maddeye](#miner-signer-is-fenced) bakın.
+`session evidence publication unavailable` yazıyorsa
+[bu maddeye](#session-evidence-publication-unavailable) bakın.
 
 ### Explorer'da oturumların çoğu `Closed` görünüyor
 
 Bunların çoğu, FLOP'un ağ geçidinin neredeyse hiç para koymadan açtığı deneme oturumlarıdır
 (explorer'da `0.0000 FLOP`). Devnet'te 48 saatte 153 miner'a bunlardan yaklaşık 9.000 tane açıldı
 ve hiçbir miner'da hiçbiri ödenmedi, yani bunlar için yapılacak bir şey yoktur. Gerçek para olan
-oturumlar da kapanıyorsa [19. adımı](#19-worker-v01286-hız-yaması) uygulayın.
+oturumlar da kapanıyorsa worker v0.1.336 veya sonrasını kullandığınızdan emin olun
+([Sürüm Güncelleme](#sürüm-güncelleme)).
 
 ---
 
 ## Güvenlik
 
 - Miner için ayrı bir hesap kullanın. Ana cüzdanınızı hiçbir sunucuya koymayın.
-- `signer`, `miner.json`, keystore şifresi, `SESSION_AUTH_TOKEN` ve `INFERENCE_API_KEY`
-  sunucuda kalır. Bunları kimseyle paylaşmayın.
+- `signer`, `miner.json`, keystore şifresi, `audit-key/evidence.key`, `SESSION_AUTH_TOKEN` ve
+  `INFERENCE_API_KEY` sunucuda kalır. Bunları kimseyle paylaşmayın.
 - Worker'ın 8645 portu ve backend'in 8000 portu dışarıya açılmaz. Dışarıdan yalnızca tünel
   adresi görünür ve şifresiz istekleri reddeder.
 - FLOP hiçbir zaman seed phrase istemez. FLOP'un resmi Discord veya Telegram kanalı yoktur.
