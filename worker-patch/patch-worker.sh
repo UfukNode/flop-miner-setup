@@ -5,17 +5,17 @@
 # chain every time FLOP's gateway asks whether the miner is healthy (/session/info-proof, about
 # once a minute) and on every session open and turn; for the readiness it also starts the
 # da-validator program each time. On the public RPC one health check took 2.0-2.5 seconds in our
-# test (12 Nov 2026), and the gateway cancelled 17 health checks and one session open in 37
-# minutes. The script copies the original worker file out of the official v0.1.336 image, checks
-# its SHA-256, makes five small text changes and mounts the result read-only over the original:
+# test (12 Nov 2026), and the gateway cancelled 20 requests in 37 minutes, most of them health
+# checks. The script copies the original worker file out of the official v0.1.336 image, checks
+# its SHA-256, makes four small text changes and mounts the result read-only over the original:
 #   1. Calibration comes from the status the worker refreshes in the background; the chain is
 #      read only when that status is not ready (a stale status already counts as not ready).
 #   2. A ready evidence-store check is reused for 20 seconds; a not-ready one is never reused.
-#   3. A session's channel, once found on chain, is reused for 30 seconds; a missing channel or an
+#   3. A session's channel, once found on chain, is reused for 10 seconds (an open, its first
+#      turn, the ack and the checkpoint come within about 2 seconds); a missing channel or an
 #      error is never kept.
-#   4. A request for a channel that is not final yet waits up to about 12 seconds instead of
-#      getting 401 at once.
-#   5. Refused session requests are written to the log as "[http] ... -> CODE".
+#   4. Refused session requests other than 401 are written to the log as "[http] ... -> CODE"
+#      (anyone can make a 401, so those stay out of the log).
 # Nothing else changes. Run it as root on the miner server:
 #   bash patch-worker.sh            apply, or confirm it is applied
 #   bash patch-worker.sh --undo     go back to the original worker file
@@ -81,18 +81,15 @@ changes = [
  ("publication readiness reused for 20 s",
   "...p?{publicationReady:()=>p.checkReady()}:{},",
   "...p?{publicationReady:(()=>{let __flOk=0;return async()=>{if(Date.now()-__flOk<2e4)return!0;let __r=await p.checkReady();return __r&&(__flOk=Date.now()),__r}})()}:{},"),
- # a found channel is reused for 30 s; a missing channel or an error is never kept
- ("channel lookups reused for 30 s",
+ # a found channel is reused for 10 s (an open, its first turn, ack and checkpoint come within
+ # about 2 s); a missing channel or an error is never kept
+ ("channel lookups reused for 10 s",
   "resolveChannel:x=>tie(e,x),",
-  "resolveChannel:(()=>{let __flC=new Map;return x=>{let __flK=Buffer.from(x).toString(\"hex\"),__flH=__flC.get(__flK),__flN=Date.now();if(__flH&&__flN-__flH.t<3e4)return __flH.p;for(let[__k,__v]of __flC)__flN-__v.t>=3e4&&__flC.delete(__k);let __flP=tie(e,x).then(__v=>(__v||__flC.delete(__flK),__v),__x=>{throw __flC.delete(__flK),__x});return __flC.set(__flK,{t:__flN,p:__flP}),__flP}})(),"),
- # a signed request for a channel that is not final yet waits up to about 12 s instead of 401
- ("channel lookup waits for finality",
-  "async validState(e,r,i){try{let n=await r(ye(e));if(n)return i(n),n}catch{}return null}",
-  "async validState(e,r,i){let __flId=String(e).slice(0,14);for(let k=0;;k++){let n,z;try{n=await r(ye(e))}catch(x){z=x}if(z instanceof Zh)return console.warn(`  [session] channel ${__flId}… refused: ${z.message}`),null;if(n){try{return i(n),n}catch(x){return console.warn(`  [session] channel ${__flId}… refused: ${x?.message??x}`),null}}if(k>=8)return console.warn(`  [session] channel ${__flId}… refused: ${z?`lookup failed: ${String(z?.message??z).slice(0,160)}`:\"not visible at finality after 12 s\"}`),null;await new Promise(q=>setTimeout(q,1500))}}"),
- # every error answer to a signed session request goes to the log
- ("error answers go to the log",
+  "resolveChannel:(()=>{let __flC=new Map;return x=>{let __flK=Buffer.from(x).toString(\"hex\"),__flH=__flC.get(__flK),__flN=Date.now();if(__flH&&__flN-__flH.t<1e4)return __flH.p;for(let[__k,__v]of __flC)__flN-__v.t>=1e4&&__flC.delete(__k);let __flP=tie(e,x).then(__v=>(__v||__flC.delete(__flK),__v),__x=>{throw __flC.delete(__flK),__x});return __flC.set(__flK,{t:__flN,p:__flP}),__flP}})(),"),
+ # error answers other than 401 go to the log (anyone can make a 401, so those stay out)
+ ("error answers other than 401 go to the log",
   'J=Lie(async(w,f)=>{let m=(y,C)=>{f.writeHead(y,{"Content-Type":"application/json"}),f.end(JSON.stringify(C,(k,U)=>typeof U=="bigint"?U.toString():U))},E;',
-  'J=Lie(async(w,f)=>{let m=(y,C)=>{y>=400&&(y!==401||w.headers["x-flop-signature"])&&console.warn(`  [http] ${w.method} ${String(w.url||"").slice(0,32)} -> ${y} ${String(C?.error??"").slice(0,160)}`),f.writeHead(y,{"Content-Type":"application/json"}),f.end(JSON.stringify(C,(k,U)=>typeof U=="bigint"?U.toString():U))},E;'),
+  'J=Lie(async(w,f)=>{let m=(y,C)=>{y>=400&&y!==401&&console.warn(`  [http] ${w.method} ${String(w.url||"").slice(0,32)} -> ${y} ${String(C?.error??"").slice(0,160)}`),f.writeHead(y,{"Content-Type":"application/json"}),f.end(JSON.stringify(C,(k,U)=>typeof U=="bigint"?U.toString():U))},E;'),
 ]
 for name, old, new in changes:
     if t.count(old) != 1:
