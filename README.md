@@ -1012,8 +1012,10 @@ evidence records (the turn and the transcript), the evidence check and the payme
 20, one health check took 2.0-2.5 seconds on the server and the gateway cancelled 20 requests in 37
 minutes; with it, most health checks took 3 milliseconds and in 45 minutes no health check was
 cancelled, only 3 session closes. The same day the server came back from a stop with a new tunnel address, and the tunnel watch from step
-19 wrote it into `miner.env` and restarted the worker within a minute. The fence guard's new path
-was checked against the v0.1.336 worker, but no lock has happened on v0.1.336 yet.
+19 wrote it into `miner.env` and restarted the worker within a minute. At 17:40 UTC, while FLOP's
+public RPC kept dropping, a payment transaction came back `Invalid` and the worker locked itself.
+The fence guard's new path had the worker prove that the transaction had expired, and the worker
+unlocked at 17:43 UTC without a restart.
 
 ---
 

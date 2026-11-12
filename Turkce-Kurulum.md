@@ -1021,8 +1021,9 @@ saniye sürdü ve ağ geçidi 37 dakikada 20 isteği iptal etti; yamayla sağlı
 milisaniye sürdü ve 45 dakikada hiçbir sağlık kontrolü iptal edilmedi, yalnızca 3 oturum kapanışı
 iptal edildi. Aynı gün sunucu durduktan sonra yeni bir
 tünel adresiyle açıldı; 19. adımdaki bekçi adresi bir dakika içinde `miner.env` dosyasına yazdı ve
-worker'ı yeniden başlattı. Kilit açıcının yeni yolu v0.1.336 worker'ına karşı denendi, ancak
-v0.1.336'da henüz bir kilit oluşmadı.
+worker'ı yeniden başlattı. UTC 17:40'ta, FLOP'un herkese açık RPC'si sürekli koparken bir ödeme
+işlemi `Invalid` döndü ve worker kendini kilitledi. Kilit açıcının yeni yolu sayesinde worker
+işlemin süresinin dolduğunu kanıtladı ve kilit UTC 17:43'te yeniden başlatma olmadan açıldı.
 
 ---
 
