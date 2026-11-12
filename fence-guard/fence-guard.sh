@@ -4,7 +4,10 @@
 # When a transaction's outcome is unknown, the worker keeps a fence file and stops signing. This
 # guard unlocks it only when that is provably safe:
 #   1. If FLOP's own in-process recovery applies (a finalized failure), it runs that.
-#   2. Otherwise it asks reconcile.mjs, a read-only chain check. Only on "release" (the stuck
+#   2. Worker v0.1.336 and later can prove the stuck transaction's outcome themselves
+#      (worker-reconcile.mjs); the worker then unlocks without a restart.
+#   3. Otherwise, for older workers and fence files, it asks reconcile.mjs, a read-only chain
+#      check. Only on "release" (the stuck
 #      transaction can no longer be included, the nonce is settled, nothing is pending and no
 #      session or dispute is open) does it archive the fence file and restart the worker.
 # Anything unexpected is logged and left for a person. DRY_RUN=1 stops before any change.
@@ -40,6 +43,22 @@ if [ "$recoverable" = "true" ]; then
   log "FLOP in-process recovery: $(tr '\n' ' ' <<<"$out" | cut -c1-400)"
   exit 0
 fi
+
+# Worker v0.1.336 and later keep the exact signed transaction in the fence and can prove its
+# outcome themselves: the worker archives the fence and signs again without a restart.
+wr=$("${C[@]}" exec -T worker node --input-type=module < "$G/worker-reconcile.mjs" 2>/dev/null | tail -n 1)
+if [ "$(jq -r '.ok // false' <<<"$wr" 2>/dev/null)" = "true" ]; then
+  log "unlocked by the worker's own reconciliation: $(jq -c '.resolution // {}' <<<"$wr" 2>/dev/null | cut -c1-300)"
+  exit 0
+fi
+werr=$(jq -r '.error // empty' <<<"$wr" 2>/dev/null)
+case "$werr" in
+  ""|*"operator reconciliation required"*|*"no durable signed attempt"*|*"reconciliation unavailable"*|*"reconciliation selector"*)
+    ;; # an older worker or an older fence file: use the chain check below
+  *)
+    log "wait: the worker cannot prove the outcome yet ($(cut -c1-200 <<<"$werr"))"
+    exit 0 ;;
+esac
 
 if [ -z "$sha" ] || [ -z "$miner" ]; then
   log "missing fence digest or miner address; leaving it"
