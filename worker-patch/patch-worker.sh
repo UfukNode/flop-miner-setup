@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
-# Speed patch for FLOP miner-worker v0.1.286, until FLOP publishes a worker with its own fix.
+# Speed patch for FLOP miner-worker v0.1.336 on FLOP's public devnet RPC.
 #
-# Not needed any more: worker v0.1.336 (12 Nov 2026) has FLOP's own fix. If you applied this patch,
-# run `bash patch-worker.sh --undo` before updating (see "Updating to a New Release" in the guide).
-#
-# Worker v0.1.286 runs a full calibration check on every /session/open and /session/turn. The check
-# reads every miner's calibration jobs from the public RPC (about 5,700 records on 10 Nov 2026) and
-# took 11-19 seconds, so FLOP's gateway gave up on many sessions (flop-labs/network #168). FLOP fixed
-# this in its worker v0.1.315 build, which is not in releases.json yet.
-#
-# The script copies the original worker file out of the official v0.1.286 image, checks its SHA-256,
-# makes four small text changes and mounts the result read-only over the original file:
-#   1. /session/open and /session/turn use the calibration status the worker refreshes every 30 s.
-#   2. A failed TOPLOC evidence upload is written to the log instead of being dropped silently.
-#   3. A retry does not register the same evidence on chain again (each registration costs a fee).
-#   4. The evidence read-back is tried twice before the upload counts as failed (#172).
+# Worker v0.1.336 reads the miner's calibration and the readiness of its evidence store from the
+# chain every time FLOP's gateway asks whether the miner is healthy (/session/info-proof, about
+# once a minute) and on every session open and turn; for the readiness it also starts the
+# da-validator program each time. On the public RPC one health check took 2.0-2.5 seconds in our
+# test (12 Nov 2026), and the gateway cancelled 17 health checks and one session open in 37
+# minutes. The script copies the original worker file out of the official v0.1.336 image, checks
+# its SHA-256, makes five small text changes and mounts the result read-only over the original:
+#   1. Calibration comes from the status the worker refreshes in the background; the chain is
+#      read only when that status is not ready (a stale status already counts as not ready).
+#   2. A ready evidence-store check is reused for 20 seconds; a not-ready one is never reused.
+#   3. A session's channel, once found on chain, is reused for 30 seconds; a missing channel or an
+#      error is never kept.
+#   4. A request for a channel that is not final yet waits up to about 12 seconds instead of
+#      getting 401 at once.
+#   5. Refused session requests are written to the log as "[http] ... -> CODE".
 # Nothing else changes. Run it as root on the miner server:
 #   bash patch-worker.sh            apply, or confirm it is applied
 #   bash patch-worker.sh --undo     go back to the original worker file
+# (Before 12 Nov 2026 this script was a different speed patch for worker v0.1.286; --undo removes
+# either one.)
 set -euo pipefail
 
 DIR=/opt/flop-miner
@@ -26,17 +29,14 @@ COMPOSE=$DIR/docker-compose.yml
 P=$DIR/patches
 TARGET=/repo/sdk/miner-worker/miner-worker.mjs
 MOUNT="      - ./patches/miner-worker.mjs:$TARGET:ro"
-WANT_IMAGE=ghcr.io/flop-labs/flop-core/miner-worker:v0.1.286@sha256:78211fe5f63820eeb1191e834f3a1eb7f573bc34348bdd4c0b0f07c7824fe7b5
-WANT_ORIG=8a5cc221760fc7785c0e05b0fb1ceed447f3d355a4552dd51b45558d4199344b
+WANT_IMAGE=ghcr.io/flop-labs/flop-core/miner-worker:v0.1.336@sha256:b238975bb6ca282358e8f52f178152f26b4675ae6bbc5e1e305eacf92b27e39d
+WANT_ORIG=33255f3fd456f6f1a3e0c1c22221654d54e0117a3108c2012f240cb9c644bc0d
+ORIG=$P/miner-worker.v0.1.336.orig.mjs
 C=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE")
 
 recreate() {
-  # Never restart the worker in the middle of a fence-guard run (step 18).
-  if [ -e /run/flop-fence-guard.lock ]; then
-    flock /run/flop-fence-guard.lock "${C[@]}" up -d --force-recreate worker < /dev/null
-  else
-    "${C[@]}" up -d --force-recreate worker < /dev/null
-  fi
+  # Never restart the worker in the middle of a fence-guard or tunnel-watch run (steps 18 and 19).
+  flock /run/flop-fence-guard.lock "${C[@]}" up -d --force-recreate worker < /dev/null
 }
 
 if [ "${1:-}" = "--undo" ]; then
@@ -54,50 +54,59 @@ fi
 
 IMG=$(grep '^FLOP_WORKER_IMAGE=' "$ENV_FILE" | cut -d= -f2-)
 if [ "$IMG" != "$WANT_IMAGE" ]; then
-  echo "this patch is only for worker v0.1.286; miner.env has: $IMG"
+  echo "this patch is only for worker v0.1.336; miner.env has: $IMG"
   exit 1
 fi
 command -v python3 > /dev/null || { echo "python3 is required"; exit 1; }
 
 install -d -m 755 "$P"
-docker run --rm --entrypoint cat "$IMG" "$TARGET" < /dev/null > "$P/miner-worker.v0.1.286.orig.mjs"
-if [ "$(sha256sum < "$P/miner-worker.v0.1.286.orig.mjs" | cut -d' ' -f1)" != "$WANT_ORIG" ]; then
+docker run --rm --entrypoint cat "$IMG" "$TARGET" < /dev/null > "$ORIG"
+if [ "$(sha256sum < "$ORIG" | cut -d' ' -f1)" != "$WANT_ORIG" ]; then
   echo "the original worker file is not the expected one; nothing was changed"
   exit 1
 fi
 echo "original worker file: verified"
 
-python3 - "$P" <<'PY'
+python3 - "$ORIG" "$P/miner-worker.new.mjs" <<'PY'
 import sys
-p = sys.argv[1]
-t = open(p + "/miner-worker.v0.1.286.orig.mjs", encoding="utf-8").read()
+src, out = sys.argv[1], sys.argv[2]
+t = open(src, encoding="utf-8").read()
 changes = [
- ("calibration status from the 30-second check",
-  "calibrationStatus:i.checkNow,calibrationSnapshot:i.snapshot",
-  "calibrationStatus:i.snapshot,calibrationSnapshot:i.snapshot"),
- ("failed evidence uploads go to the log",
-  "let H=this.publishToplocActivation(this.daSink,o).catch(()=>{}).finally(()=>{this.pendingToplocPublishes.delete(H)});",
-  "let H=this.publishToplocActivation(this.daSink,o).catch(z=>{console.warn(`  [session] TOPLOC DA publish failed for turn ${o}: ${z?.message??z}`)}).finally(()=>{this.pendingToplocPublishes.delete(H)});"),
- ("no second evidence registration on a retry",
-  "await this.options.register({channelId:r?.taskHash??o.channelId,turnIndex:r?.turnIndex??null,commitment:n,sizeBytes:e.length}),await this.options.checkRetention(n,e.length);",
-  "(this.__flopRegistered??=new Set).has(G(n))||(await this.options.register({channelId:r?.taskHash??o.channelId,turnIndex:r?.turnIndex??null,commitment:n,sizeBytes:e.length}),this.__flopRegistered.add(G(n))),await this.options.checkRetention(n,e.length);"),
- ("evidence read-back tried twice",
-  "let u=await this.fetch(n);if(!$e(u,e))throw new Error(\"session DA reconstructed bytes differ\");",
-  "let u;for(let k=1;;k++){try{u=await this.fetch(n);break}catch(z){if(k>=2)throw z;console.warn(`  [session] TOPLOC DA read-back failed, retrying once: ${z?.message??z}`);await new Promise(q=>setTimeout(q,5e3))}}if(!$e(u,e))throw new Error(\"session DA reconstructed bytes differ\");"),
+ # the calibration snapshot the worker refreshes in the background; a fresh chain check only when
+ # the snapshot is not ready (stale snapshots already report not ready)
+ ("calibration from the background snapshot",
+  "calibrationStatus:o.checkReady,enclave:a,",
+  "calibrationStatus:async()=>{let __flCal=o.snapshot();return __flCal&&__flCal.ready?__flCal:o.checkReady()},enclave:a,"),
+ # a ready evidence-publication check is reused for 20 s; a not-ready answer is never reused
+ ("publication readiness reused for 20 s",
+  "...p?{publicationReady:()=>p.checkReady()}:{},",
+  "...p?{publicationReady:(()=>{let __flOk=0;return async()=>{if(Date.now()-__flOk<2e4)return!0;let __r=await p.checkReady();return __r&&(__flOk=Date.now()),__r}})()}:{},"),
+ # a found channel is reused for 30 s; a missing channel or an error is never kept
+ ("channel lookups reused for 30 s",
+  "resolveChannel:x=>tie(e,x),",
+  "resolveChannel:(()=>{let __flC=new Map;return x=>{let __flK=Buffer.from(x).toString(\"hex\"),__flH=__flC.get(__flK),__flN=Date.now();if(__flH&&__flN-__flH.t<3e4)return __flH.p;for(let[__k,__v]of __flC)__flN-__v.t>=3e4&&__flC.delete(__k);let __flP=tie(e,x).then(__v=>(__v||__flC.delete(__flK),__v),__x=>{throw __flC.delete(__flK),__x});return __flC.set(__flK,{t:__flN,p:__flP}),__flP}})(),"),
+ # a signed request for a channel that is not final yet waits up to about 12 s instead of 401
+ ("channel lookup waits for finality",
+  "async validState(e,r,i){try{let n=await r(ye(e));if(n)return i(n),n}catch{}return null}",
+  "async validState(e,r,i){let __flId=String(e).slice(0,14);for(let k=0;;k++){let n,z;try{n=await r(ye(e))}catch(x){z=x}if(z instanceof Zh)return console.warn(`  [session] channel ${__flId}… refused: ${z.message}`),null;if(n){try{return i(n),n}catch(x){return console.warn(`  [session] channel ${__flId}… refused: ${x?.message??x}`),null}}if(k>=8)return console.warn(`  [session] channel ${__flId}… refused: ${z?`lookup failed: ${String(z?.message??z).slice(0,160)}`:\"not visible at finality after 12 s\"}`),null;await new Promise(q=>setTimeout(q,1500))}}"),
+ # every error answer to a signed session request goes to the log
+ ("error answers go to the log",
+  'J=Lie(async(w,f)=>{let m=(y,C)=>{f.writeHead(y,{"Content-Type":"application/json"}),f.end(JSON.stringify(C,(k,U)=>typeof U=="bigint"?U.toString():U))},E;',
+  'J=Lie(async(w,f)=>{let m=(y,C)=>{y>=400&&(y!==401||w.headers["x-flop-signature"])&&console.warn(`  [http] ${w.method} ${String(w.url||"").slice(0,32)} -> ${y} ${String(C?.error??"").slice(0,160)}`),f.writeHead(y,{"Content-Type":"application/json"}),f.end(JSON.stringify(C,(k,U)=>typeof U=="bigint"?U.toString():U))},E;'),
 ]
 for name, old, new in changes:
     if t.count(old) != 1:
         sys.exit(f"cannot apply '{name}'; nothing was changed")
     t = t.replace(old, new)
     print("applied:", name)
-open(p + "/miner-worker.new.mjs", "w", encoding="utf-8").write(t)
+open(out, "w", encoding="utf-8").write(t)
 PY
 
 docker run --rm --entrypoint node -v "$P/miner-worker.new.mjs:/x/miner-worker.mjs:ro" "$IMG" --check /x/miner-worker.mjs < /dev/null
 echo "syntax check: ok"
 NEW=$(sha256sum < "$P/miner-worker.new.mjs" | cut -d' ' -f1)
 mv "$P/miner-worker.new.mjs" "$P/miner-worker.mjs"
-chmod 644 "$P/miner-worker.mjs" "$P/miner-worker.v0.1.286.orig.mjs"
+chmod 644 "$P/miner-worker.mjs" "$ORIG"
 
 if ! grep -qxF -- "$MOUNT" "$COMPOSE"; then
   cp -p "$COMPOSE" "$COMPOSE.bak-$(date -u +%Y%m%d%H%M%S)"
