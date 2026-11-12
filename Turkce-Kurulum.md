@@ -4,12 +4,13 @@
 
 > [!WARNING]
 > **Güncelleme, 12 Kasım 2026:** Rehber artık FLOP'un en yeni sürümü olan worker v0.1.336'yı
-> kullanıyor. Bu sürüm oturumlara hızlı cevap veriyor, bu yüzden eski hız yamasına gerek kalmadı.
-> Ama ücretli oturumları yalnızca şifreli bir kanıt deposu varsa alıyor: depo yoksa her oturum
-> `503 session evidence publication unavailable` cevabı alıyor. 9. adım ve rehberin
-> `docker-compose.yml` dosyası bu depoyu artık kuruyor, [19. adımdaki](#19-tünel-bekçisini-kurma)
-> bekçi de tünel adresini güncel tutuyor. Kurulumu bu tarihten önce yaptıysanız
-> [Sürüm Güncelleme](#sürüm-güncelleme) bölümünü uygulayın.
+> kullanıyor. Bu sürüm ücretli oturumları yalnızca şifreli bir kanıt deposu varsa alıyor: depo
+> yoksa her oturum `503 session evidence publication unavailable` cevabı alıyor. 9. adım ve
+> rehberin `docker-compose.yml` dosyası bu depoyu artık kuruyor. v0.1.336, FLOP'un herkese açık
+> RPC'sinde ağ geçidinin sağlık kontrollerine geç cevap veriyor ve bunların birçoğu iptal ediliyor;
+> [20. adımdaki](#20-worker-v01336-hız-yaması) yama bunu düzeltiyor.
+> [19. adımdaki](#19-tünel-bekçisini-kurma) bekçi de tünel adresini güncel tutuyor. Kurulumu bu
+> tarihten önce yaptıysanız [Sürüm Güncelleme](#sürüm-güncelleme) bölümünü uygulayın.
 >
 > **Güncelleme, 9 Kasım 2026:** Worker gönderdiği bir işlemin sonucunu doğrulayamadığında, örneğin
 > RPC bağlantısı koptuğunda, kendini kilitliyor (`miner signer is fenced`) ve yeni oturum almıyor.
@@ -55,8 +56,8 @@ Kayıt için gereken stake'i ağ karşılar, sizin FLOP satın almanız veya yat
 > Bu rehberin ilk 17 adımı 3 Kasım 2026'da Vast.ai üzerinde iki ayrı Ubuntu 22.04 VM'de, 1x RTX
 > 5090 ve 1x RTX 5060 Ti ile baştan sona denendi. İkisi de kalibrasyondan geçti. Görsellerdeki
 > çıktılar RTX 5090 kurulumundan alındı. 18. adım 9 Kasım 2026'da eklendi ve çalışan bir RTX
-> 5060 Ti miner'ında denendi. Kanıt deposuyla worker v0.1.336 ve 19. adım 12 Kasım 2026'da
-> çalışan bir RTX 3090 miner'ında denendi.
+> 5060 Ti miner'ında denendi. Kanıt deposuyla worker v0.1.336 ile 19. ve 20. adımlar 12 Kasım
+> 2026'da çalışan bir RTX 3090 miner'ında denendi.
 
 ---
 
@@ -616,11 +617,14 @@ compose logs worker | grep -E "\[session\] (open|settle|error)" | tail
 ```
 
 > [!NOTE]
-> Bir oturumun her turu, kanıt kaydı için yaklaşık 1,31 test FLOP işlem ücreti tutar. Bu, küçük
-> bir oturumun ödediğinden fazladır ([#163](https://github.com/flop-labs/network/issues/163)).
-> Gördüğümüz trafikle sponsorun ücretler için verdiği 250 test FLOP 2-3 gün yetiyor ve
-> FLOP'un sponsorlu hesaplara tekrar yükleme yolu henüz yok
-> ([#175](https://github.com/flop-labs/network/issues/175)).
+> Ücretler: worker v0.1.336 her turun ve oturum transkriptinin kanıtını kaydeder, her biri
+> yaklaşık 1,31 test FLOP tutar ([#163](https://github.com/flop-labs/network/issues/163)).
+> Testimizde tek turluk bir oturumun ücreti 2,63 test FLOP oldu. Miner G_n başına 0,003 test FLOP
+> alır, bunun %1'i kesilir. Bu yüzden tek turluk bir oturum ücretini ancak yaklaşık 885 G_n ile
+> karşılar: bu rehberdeki 0.5B modelle yaklaşık 440 token (token başına 2 G_n). Oturumların çoğu
+> bundan küçüktür. FLOP'un sponsorun ücret desteğini yeniden yükleme yolu henüz yok
+> ([#175](https://github.com/flop-labs/network/issues/175)). https://faucet.flop.network adresindeki
+> faucet her adrese günde 25 test FLOP verir.
 
 ---
 
@@ -701,11 +705,55 @@ journalctl -u flop-tunnel-watch -o cat --no-pager | grep -E "tunnel address|outs
 ```
 
 Zamanlayıcı bir sonraki çalışma saatini göstermelidir. Adres değiştikten sonra logda
-`tunnel address ESKI -> YENI, worker recreated` satırı görünür.
+`tunnel address ESKI -> YENI, worker recreated` satırı görünür:
+
+![Tünel bekçisi](assets/23-term-tunnel-watch.png)
 
 - Bekçi worker'ı yalnızca kilit açıcının kilidi altında yeniden başlatır, ikisi hiçbir zaman aynı
   anda çalışmaz.
 - Worker'ın kendisi kapalıysa tünele dokunmaz, worker'ı Docker yeniden başlatır.
+
+---
+
+## 20. Worker v0.1.336 Hız Yaması
+
+Worker v0.1.336, FLOP'un ağ geçidi miner'ın sağlıklı olup olmadığını her sorduğunda (yaklaşık
+dakikada bir) ve her oturum açılışında miner'ın kalibrasyonunu ve kanıt deposunu zincirden baştan
+kontrol eder. FLOP'un herkese açık RPC'sinde bir sağlık kontrolü testimizde 2,0-2,5 saniye sürdü
+ve ağ geçidi 37 dakikada 20 cevabımızı iptal etti; bunların çoğu sağlık kontrolüydü, biri de
+oturum açılışıydı.
+
+Bu betik worker'ın, arka planda zaten yenilediği kalibrasyon bilgisiyle cevap vermesini, hazır
+çıkan kanıt deposu kontrolünü 20 saniye ve bir oturumun kanalını 10 saniye tekrar kullanmasını
+sağlar. Hazır çıkmayan bir kontrol hiçbir zaman tekrar kullanılmaz. Ayrıca reddedilen oturum
+isteklerini, düz `401` cevapları dışında, logda `[http] ... -> KOD` satırıyla gösterir.
+
+```bash
+cd /opt/flop-miner
+curl -fsSL -o patch-worker.sh https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/worker-patch/patch-worker.sh
+bash patch-worker.sh
+```
+
+Worker'ın yamalı dosyayı çalıştırdığını kontrol edin:
+
+```bash
+compose exec -T worker sha256sum /repo/sdk/miner-worker/miner-worker.mjs
+```
+
+Çıkan değer `patched file:` satırıyla aynı olmalıdır:
+
+![Worker yaması](assets/24-term-worker-patch.png)
+
+- Yamayla sağlık kontrollerinin çoğu 3 milisaniye sürdü. 45 dakikada ağ geçidi hiçbir sağlık
+  kontrolünü iptal etmedi, yalnızca zararsız 3 oturum kapanışını iptal etti. Oturumun ilk cevabı
+  açılıştan 10,6 yerine 0,9 saniye sonra geldi.
+- `[http] POST /session/close -> 409 channel close is in progress` gibi satırlar normaldir: oturum
+  kapanırken artık transkripti de yüklenir, bu testimizde 3,5 dakikaya kadar sürdü ve ağ geçidi bu
+  sırada kapanışı tekrar ister.
+- Betik yalnızca worker v0.1.336 ile çalışır. Bir şeyi değiştirmeden önce FLOP'un orijinal
+  dosyasını doğrular ve bir kopyasını `/opt/flop-miner/patches` klasöründe saklar.
+- Daha yeni bir worker'a geçmeden önce yamayı geri alın:
+  `bash /opt/flop-miner/patch-worker.sh --undo`
 
 ---
 
@@ -760,9 +808,9 @@ Loglardan `CTRL + C` ile çıkabilirsiniz, programlar çalışmaya devam eder.
 
 ## Sürüm Güncelleme
 
-1. Eski hız yamasını (12 Kasım'dan önceki 19. adım) uyguladıysanız önce geri alın:
-   `bash /opt/flop-miner/patch-worker.sh --undo`. Worker v0.1.336'da FLOP'un kendi düzeltmesi
-   zaten var.
+1. Bir hız yaması uyguladıysanız (12 Kasım'dan önceki 19. adım ya da 20. adım) önce geri alın:
+   `bash /opt/flop-miner/patch-worker.sh --undo`. Her yama yalnızca bir worker sürümüne uyar.
+   v0.1.336'ya geçtikten sonra [20. adımı](#20-worker-v01336-hız-yaması) uygulayın.
 2. https://flop.network/releases.json adresinden `cli`, `miner-worker` ve `miner-vllm-toploc`
    için yeni `image` değerlerini alın. Bu liste zincirin gerisinde kalabilir: 7 Kasım 2026'da
    hâlâ artık çalışmayan CLI v0.1.220'yi gösteriyordu. Emin değilseniz bu rehberin
@@ -903,8 +951,8 @@ Miner henüz kalibre olmamıştır. Kalibrasyon tamamlanana kadar bu normaldir. 
 Bunların çoğu, FLOP'un ağ geçidinin neredeyse hiç para koymadan açtığı deneme oturumlarıdır
 (explorer'da `0.0000 FLOP`). Devnet'te 48 saatte 153 miner'a bunlardan yaklaşık 9.000 tane açıldı
 ve hiçbir miner'da hiçbiri ödenmedi, yani bunlar için yapılacak bir şey yoktur. Gerçek para olan
-oturumlar da kapanıyorsa worker v0.1.336 veya sonrasını kullandığınızdan emin olun
-([Sürüm Güncelleme](#sürüm-güncelleme)).
+oturumlar da kapanıyorsa worker v0.1.336'yı [20. adımdaki](#20-worker-v01336-hız-yaması) yamayla
+kullandığınızdan emin olun.
 
 ---
 
@@ -961,8 +1009,20 @@ açtı. Sonraki oturum 2 dakika sonra açıldı ve 10:57'de ödendi.
 10 Kasım 2026'da FLOP'un ağ geçidi oturum açılışlarının birçoğunu yarıda kesiyordu (Türkiye
 saatiyle 14:00'e kadar 20 tane) ve oturumun açılışından ilk tura kadar geçen ortanca süre 14,8
 saniyeye çıkmıştı. Sunucuda ölçüldüğünde worker'ın oturum kapısı orijinal dosyayla 13-28 saniye,
-yamayla (19. adım) 8-84 milisaniye sürdü. Yamadan sonra ilk tur açılıştan 4-5 saniye sonra geldi
-ve sonraki oturumlar ödendi.
+o zamanki 19. adımdaki yamayla (worker v0.1.286 için) 8-84 milisaniye sürdü. Yamadan sonra ilk
+tur açılıştan 4-5 saniye sonra geldi ve sonraki oturumlar ödendi.
+
+12 Kasım 2026'da çalışan RTX 3090 miner'ımız (Qwen3-8B çalıştırıyor, adımlar aynı) worker
+v0.1.286'dan bu rehberdeki kanıt deposuyla v0.1.336'ya geçti. Hesap, oturum anahtarı ve
+kalibrasyon (200 GFLOP/s) aynı kaldı, `is_ready` ve `audit_handoff_enabled` ikisi de `true` oldu.
+İlk oturum (3.436 G_n) 9,9 test FLOP ödendi ve 2,63 test FLOP ücret tuttu: iki kanıt kaydı (tur ve
+transkript), kanıt kontrolü ve ödeme işlemi. 20. adım olmadan bir sağlık kontrolü sunucuda 2,0-2,5
+saniye sürdü ve ağ geçidi 37 dakikada 20 isteği iptal etti; yamayla sağlık kontrollerinin çoğu 3
+milisaniye sürdü ve 45 dakikada hiçbir sağlık kontrolü iptal edilmedi, yalnızca 3 oturum kapanışı
+iptal edildi. Aynı gün sunucu durduktan sonra yeni bir
+tünel adresiyle açıldı; 19. adımdaki bekçi adresi bir dakika içinde `miner.env` dosyasına yazdı ve
+worker'ı yeniden başlattı. Kilit açıcının yeni yolu v0.1.336 worker'ına karşı denendi, ancak
+v0.1.336'da henüz bir kilit oluşmadı.
 
 ---
 

@@ -4,11 +4,12 @@
 
 > [!WARNING]
 > **Update, 12 November 2026:** the guide now uses worker v0.1.336, FLOP's newest release. It
-> answers sessions quickly, so the old speed patch is no longer needed. But it takes paid sessions
-> only with an encrypted evidence store: without one, every session gets
+> takes paid sessions only with an encrypted evidence store: without one, every session gets
 > `503 session evidence publication unavailable`. Step 9 and the guide's `docker-compose.yml` now
-> set this up, and [step 19](#19-install-the-tunnel-watch) keeps the tunnel address up to date. If
-> you set up before this date, follow [Updating to a New Release](#updating-to-a-new-release).
+> set this up. On FLOP's public RPC, v0.1.336 answers the gateway's health checks too slowly and
+> many are cancelled; [step 20](#20-speed-patch-for-worker-v01336) fixes this, and
+> [step 19](#19-install-the-tunnel-watch) keeps the tunnel address up to date. If you set up before
+> this date, follow [Updating to a New Release](#updating-to-a-new-release).
 >
 > **Update, 9 November 2026:** when the worker cannot confirm a transaction it sent, for example
 > because the RPC connection dropped, it locks itself (`miner signer is fenced`) and takes no new
@@ -53,8 +54,8 @@ have to buy or deposit any FLOP.
 > Steps 1 to 17 were tested end to end on 3 November 2026 on two separate Ubuntu 22.04 VMs on
 > Vast.ai, one with 1x RTX 5090 and one with 1x RTX 5060 Ti. Both passed calibration. The outputs
 > in the images come from the RTX 5090 setup. Step 18 was added on 9 November 2026 and tested on a
-> running RTX 5060 Ti miner. Worker v0.1.336 with the evidence store and step 19 were tested on
-> 12 November 2026 on a running RTX 3090 miner.
+> running RTX 5060 Ti miner. Worker v0.1.336 with the evidence store and steps 19 and 20 were
+> tested on 12 November 2026 on a running RTX 3090 miner.
 
 ---
 
@@ -612,10 +613,13 @@ compose logs worker | grep -E "\[session\] (open|settle|error)" | tail
 ```
 
 > [!NOTE]
-> Each turn of a session costs about 1.31 test FLOP in fees for its evidence record, more than a
-> small session pays ([#163](https://github.com/flop-labs/network/issues/163)). At the traffic we
-> saw, the 250 test FLOP the sponsor gives for fees lasts two to three days, and FLOP has no top-up
-> for sponsored accounts yet ([#175](https://github.com/flop-labs/network/issues/175)).
+> Fees: worker v0.1.336 records evidence for each turn and for the session's transcript, about
+> 1.31 test FLOP each ([#163](https://github.com/flop-labs/network/issues/163)). A one-turn session
+> cost 2.63 test FLOP in fees in our test. The miner gets 0.003 test FLOP per G_n, less 1 %, so a
+> one-turn session needs about 885 G_n to pay for its fees: about 440 tokens with this guide's
+> 0.5B model (2 G_n per token). Most sessions are smaller than that. FLOP has no top-up for the
+> sponsor's fee grant yet ([#175](https://github.com/flop-labs/network/issues/175)); the faucet at
+> https://faucet.flop.network gives 25 test FLOP per address per day.
 
 ---
 
@@ -694,10 +698,53 @@ journalctl -u flop-tunnel-watch -o cat --no-pager | grep -E "tunnel address|outs
 ```
 
 The timer should show its next run. After an address change, the log shows
-`tunnel address OLD -> NEW, worker recreated`.
+`tunnel address OLD -> NEW, worker recreated`:
+
+![The tunnel watch](assets/23-term-tunnel-watch.png)
 
 - It restarts the worker only under the fence guard's lock, so the two never run at the same time.
 - If the worker itself is down, it leaves the tunnel alone; Docker restarts the worker.
+
+---
+
+## 20. Speed Patch for Worker v0.1.336
+
+Worker v0.1.336 reads the miner's calibration and checks its evidence store on the chain every
+time FLOP's gateway asks whether the miner is healthy (about once a minute) and every time a
+session opens. On FLOP's public RPC one health check took 2.0-2.5 seconds in our test, and the
+gateway cancelled 20 of our answers in 37 minutes, most of them health checks and one a session
+open.
+
+This script makes the worker answer from the calibration status it already refreshes in the
+background, and reuse a ready evidence-store check for 20 seconds and a session's channel for 10
+seconds. A check that is not ready is never reused. It also writes refused session requests, except
+plain `401` answers, to the log as `[http] ... -> CODE`.
+
+```bash
+cd /opt/flop-miner
+curl -fsSL -o patch-worker.sh https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/worker-patch/patch-worker.sh
+bash patch-worker.sh
+```
+
+Check that the worker runs the patched file:
+
+```bash
+compose exec -T worker sha256sum /repo/sdk/miner-worker/miner-worker.mjs
+```
+
+The value should match the `patched file:` line:
+
+![The worker patch](assets/24-term-worker-patch.png)
+
+- With the patch, most health checks took 3 milliseconds. In 45 minutes the gateway cancelled no
+  health check, only 3 session closes, which do no harm. A session's first answer came 0.9 seconds
+  after it opened instead of 10.6.
+- Lines like `[http] POST /session/close -> 409 channel close is in progress` are normal: closing a
+  session now also uploads its transcript, which took up to 3.5 minutes in our test, and the
+  gateway asks again in the meantime.
+- The script works only with worker v0.1.336. It checks FLOP's original file before changing
+  anything and keeps a copy of it in `/opt/flop-miner/patches`.
+- Before moving to a newer worker, undo it: `bash /opt/flop-miner/patch-worker.sh --undo`
 
 ---
 
@@ -752,8 +799,9 @@ Leave the logs with `CTRL + C`; the programs keep running.
 
 ## Updating to a New Release
 
-1. If you applied the old speed patch (step 19 before 12 November), undo it first:
-   `bash /opt/flop-miner/patch-worker.sh --undo`. Worker v0.1.336 already has FLOP's own fix.
+1. If you applied a speed patch (step 19 before 12 November, or step 20), undo it first:
+   `bash /opt/flop-miner/patch-worker.sh --undo`. Each patch fits only one worker version. After
+   updating to v0.1.336, apply [step 20](#20-speed-patch-for-worker-v01336).
 2. Get the new `image` values for `cli`, `miner-worker` and `miner-vllm-toploc` from
    https://flop.network/releases.json. The list can fall behind the chain: on 7 November 2026 it
    still named CLI v0.1.220, which no longer works. When in doubt, use the lines in this guide's
@@ -895,7 +943,7 @@ The miner is not calibrated yet. This is normal until calibration completes. If 
 Most of them are test sessions that FLOP's gateway opens with almost no money (`0.0000 FLOP` in
 the explorer). In 48 hours on the devnet, about 9,000 of them went to 153 miners and none was paid,
 on any miner, so they need no fix. If sessions with real money also close, make sure you run
-worker v0.1.336 or later (see [Updating to a New Release](#updating-to-a-new-release)).
+worker v0.1.336 with the patch from [step 20](#20-speed-patch-for-worker-v01336).
 
 ---
 
@@ -953,8 +1001,19 @@ through, and opened the lock at 07:54 UTC. The next session opened 2 minutes lat
 On 10 November 2026 FLOP's gateway was cancelling many session opens (20 before 11:00 UTC), and
 the median wait from a session's open to its first turn had grown to 14.8 seconds. Timed on the
 server, the worker's session gate took 13-28 seconds with the original file and 8-84 milliseconds
-with the patch from step 19. After the patch, the first turn came 4-5 seconds after the open and
-the next sessions were paid.
+with the speed patch that was step 19 at the time (for worker v0.1.286). After the patch, the first
+turn came 4-5 seconds after the open and the next sessions were paid.
+
+On 12 November 2026 our running RTX 3090 miner (it serves Qwen3-8B; the steps are the same) moved
+from worker v0.1.286 to v0.1.336 with the evidence store from this guide. The account, session key
+and calibration (200 GFLOP/s) stayed the same, and `is_ready` and `audit_handoff_enabled` were both
+`true`. The first session (3,436 G_n) was paid 9.9 test FLOP and cost 2.63 test FLOP in fees: two
+evidence records (the turn and the transcript), the evidence check and the payment. Without step
+20, one health check took 2.0-2.5 seconds on the server and the gateway cancelled 20 requests in 37
+minutes; with it, most health checks took 3 milliseconds and in 45 minutes no health check was
+cancelled, only 3 session closes. The same day the server came back from a stop with a new tunnel address, and the tunnel watch from step
+19 wrote it into `miner.env` and restarted the worker within a minute. The fence guard's new path
+was checked against the v0.1.336 worker, but no lock has happened on v0.1.336 yet.
 
 ---
 
