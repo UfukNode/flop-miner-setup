@@ -1,0 +1,7 @@
+[Unit]
+Description=FLOP miner tunnel watch (keeps the public address working)
+After=flop-tunnel.service docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/flop-miner/tunnel-watch/tunnel-watch.sh
