@@ -939,6 +939,36 @@ Worker v0.1.336 ve sonrası, şifreli kanıt deposu yoksa her oturuma bu `503` c
 [15. adımdaki](#15-kontrol-etme) kontrol de `"audit_handoff_enabled": false` gösterir.
 [Sürüm Güncelleme](#sürüm-güncelleme) bölümündeki 4. adımı uygulayın.
 
+### RPC kesintisinden sonra worker `is_ready: false` olarak kalıyor
+
+Worker v0.1.336, bir kanıt yüklemesi başarısız olduysa yeni ücretli oturum almaz. FLOP'un herkese
+açık RPC'si kesildikten sonra bu yükleme saatlerce başarısız olmaya devam edebilir. Logda aynı
+kanal için `"phase":"da.reconstruct","status":"failed"` satırı tekrar eder. Worker, o oturumun
+kanalı zincirde kapanınca başarısız yüklemeyi bırakır. Kanalın süresi dolduysa herkes onu,
+alıcının parasını iade eden `computeChannel.timeout` çağrısıyla kapatabilir. Bu betik bunu sizin
+miner hesabınızla yapar. Önce takılan kanalları bulun ve kontrol edin:
+
+```bash
+cd /opt/flop-miner
+install -d -m 755 tools
+curl -fsSL -o tools/close-expired.mjs https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/tools/close-expired.mjs
+IDS=$(compose logs --since 1h worker | grep '"phase":"da.reconstruct"' | grep -o '"channelId":"0x[0-9a-f]*"' | cut -d'"' -f4 | sort -u)
+docker run --rm --network host -v /opt/flop-miner:/work:ro --entrypoint node "$FLOP_CLI" /work/tools/close-expired.mjs $IDS
+```
+
+`open and expired ... can be closed` yazan kanal kapatılacak kanaldır. İkisi aynı anda imza
+atmasın diye worker'ı durdurun, kanalı kapatın ve worker'ı yeniden başlatın:
+
+```bash
+compose stop worker
+docker run --rm --network host -v /opt/flop-miner:/work:ro --entrypoint node "$FLOP_CLI" /work/tools/close-expired.mjs --send $IDS
+compose up -d worker
+```
+
+13 Kasım 2026'da FLOP'un herkese açık RPC'si zincir çalışmaya devam ederken yaklaşık altı saat
+3.588.640. blokta takılı kaldı ve bizim worker saatlerce hazır olmadı. Takılan kanalı aynı
+`timeout` çağrısıyla kapattık ve worker iki dakika içinde yeniden hazır oldu.
+
 ### `/session/open` isteği `503` dönüyor
 
 Miner henüz kalibre olmamıştır. Kalibrasyon tamamlanana kadar bu normaldir. Cevapta

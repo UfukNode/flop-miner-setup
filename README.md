@@ -931,6 +931,36 @@ evidence store. The check in [step 15](#15-check-everything) then shows
 `"audit_handoff_enabled": false`. Follow step 4 of
 [Updating to a New Release](#updating-to-a-new-release).
 
+### The worker stays `is_ready: false` after an RPC outage
+
+Worker v0.1.336 takes no new paid session while an evidence upload has failed, and after an outage
+of FLOP's public RPC the upload can keep failing for hours. The log then repeats
+`"phase":"da.reconstruct","status":"failed"` for the same channel. The worker drops the failed
+upload once that session's channel is closed on chain, and once the channel's time is over anyone
+may close it with the `computeChannel.timeout` call, which refunds the buyer. This script does that
+with your miner account. Find the stuck channels and check them first:
+
+```bash
+cd /opt/flop-miner
+install -d -m 755 tools
+curl -fsSL -o tools/close-expired.mjs https://raw.githubusercontent.com/UfukNode/flop-miner-setup/main/tools/close-expired.mjs
+IDS=$(compose logs --since 1h worker | grep '"phase":"da.reconstruct"' | grep -o '"channelId":"0x[0-9a-f]*"' | cut -d'"' -f4 | sort -u)
+docker run --rm --network host -v /opt/flop-miner:/work:ro --entrypoint node "$FLOP_CLI" /work/tools/close-expired.mjs $IDS
+```
+
+A channel that says `open and expired ... can be closed` is the one to close. Stop the worker so
+the two do not sign at the same time, close it and start the worker again:
+
+```bash
+compose stop worker
+docker run --rm --network host -v /opt/flop-miner:/work:ro --entrypoint node "$FLOP_CLI" /work/tools/close-expired.mjs --send $IDS
+compose up -d worker
+```
+
+On 13 November 2026 our worker stayed not ready for hours after FLOP's public RPC stopped at block
+3,588,640 for about six hours while the chain went on. We closed the stuck channel with the same
+`timeout` call and the worker was ready again within two minutes.
+
 ### `/session/open` returns `503`
 
 The miner is not calibrated yet. This is normal until calibration completes. If the answer says
