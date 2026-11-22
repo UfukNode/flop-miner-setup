@@ -394,6 +394,20 @@ The picture shows the older CLI, where this value was called `computed_root`:
 If the first attempt fails with `MODEL_VERIFICATION_FAILED` and `fetch failed`, run the same
 command again. In the test, the first attempt gave this error and the second one worked.
 
+If the error says `no mirror reproduced registered root` and
+`has content_root ..., not the registered root ...; nothing was downloaded`, running the same
+command again does not help. Newer CLI versions download this model only at an exact Hugging Face
+revision. Add `--revision` to the command:
+
+```bash
+flop --network devnet --rpc wss://rpc.devnet.flop.network model fetch 0x1a52c1abe781db051e70ae357f72bb70161ca0c092df0b618f22a9292ba63306 --precision BF16 --revision 7ae557604adf67be50417f59c2c2f167def9a775 --output-dir /work/models/qwen2.5-0.5b-instruct --json
+```
+
+You should again see `"ok": true` and a `verified_root` value equal to the model hash. The
+`da mirror requires FetchOptions.daSource` part of the message can be ignored. FLOP has not
+published this revision officially yet. It comes from miners who got past the same error this way
+in [flop-labs/network#238](https://github.com/flop-labs/network/issues/238).
+
 If the error says `Unsupported runtime spec version`, your CLI is older than the chain: apply
 [this fix](#unsupported-runtime-spec-version-1014014).
 
@@ -897,6 +911,12 @@ The NVIDIA Container Toolkit is not installed. Follow step 6.
 
 A temporary connection error happened during the download. Run the same command again. If the
 message says `Unsupported runtime spec version`, apply the first fix in this section instead.
+
+### `MODEL_VERIFICATION_FAILED` and `no mirror reproduced registered root`
+
+The CLI found the model on Hugging Face but will not download it without an exact revision.
+Running the same command again does not help. Add `--revision` to the command as shown in
+[step 11](#11-download-and-verify-the-model).
 
 ### The `Signer:` line in the worker log shows a different address
 
