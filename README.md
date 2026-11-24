@@ -2,6 +2,13 @@
 
 **English** | [Türkçe](Turkce-Kurulum.md)
 
+> [!IMPORTANT]
+> **Testnet, 24 November 2026:** FLOP opened the testnet, but mining is not open yet: at 14:10 UTC
+> the testnet chain had no registered models or miners, and no faucet or sponsor endpoint was live.
+> This guide is for devnet; devnet earns nothing and nothing carries over to testnet. The guide will
+> be updated when testnet mining opens. For validator preparation see
+> [flop-validator-setup](https://github.com/UfukNode/flop-validator-setup).
+
 > [!WARNING]
 > **Update, 12 November 2026:** the guide now uses worker v0.1.336, FLOP's newest release. It
 > takes paid sessions only with an encrypted evidence store: without one, every session gets

@@ -2,6 +2,13 @@
 
 **Türkçe** | [English](README.md)
 
+> [!IMPORTANT]
+> **Testnet, 24 Kasım 2026:** FLOP testneti açtı, ama madencilik henüz açılmadı: 14:10 UTC itibarıyla
+> testnet zincirinde kayıtlı model ve madenci yok, musluk ve sponsor adresleri de yayında değil. Bu
+> rehber devnet içindir; devnet ödül vermez ve testnete hiçbir şey taşınmaz. Testnet madenciliği
+> açılınca rehber güncellenecek. Validatör hazırlığı için:
+> [flop-validator-setup](https://github.com/UfukNode/flop-validator-setup/blob/main/Turkce-Kurulum.md)
+
 > [!WARNING]
 > **Güncelleme, 12 Kasım 2026:** Rehber artık FLOP'un en yeni sürümü olan worker v0.1.336'yı
 > kullanıyor. Bu sürüm ücretli oturumları yalnızca şifreli bir kanıt deposu varsa alıyor: depo
