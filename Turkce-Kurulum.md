@@ -403,6 +403,20 @@ flop --network devnet --rpc wss://rpc.devnet.flop.network model fetch 0x1a52c1ab
 İlk denemede `MODEL_VERIFICATION_FAILED` ve `fetch failed` hatası alırsanız aynı komutu tekrar
 çalıştırın. Testte ilk deneme bu hatayı verdi, ikinci deneme başarılı oldu.
 
+Hata `no mirror reproduced registered root` ve
+`has content_root ..., not the registered root ...; nothing was downloaded` diyorsa aynı komutu
+tekrar çalıştırmak işe yaramaz. Yeni CLI sürümleri bu modeli yalnızca belirli bir Hugging Face
+revizyonu verilirse indiriyor. Komuta `--revision` ekleyin:
+
+```bash
+flop --network devnet --rpc wss://rpc.devnet.flop.network model fetch 0x1a52c1abe781db051e70ae357f72bb70161ca0c092df0b618f22a9292ba63306 --precision BF16 --revision 7ae557604adf67be50417f59c2c2f167def9a775 --output-dir /work/models/qwen2.5-0.5b-instruct --json
+```
+
+Yine `"ok": true` ve model hash'iyle aynı `verified_root` değerini görmelisiniz. Mesajdaki
+`da mirror requires FetchOptions.daSource` kısmını dikkate almayın. FLOP bu revizyonu henüz
+resmi olarak yayınlamadı. Bilgi, aynı hatayı bu yolla aşan madencilerden geliyor:
+[flop-labs/network#238](https://github.com/flop-labs/network/issues/238).
+
 Hata `Unsupported runtime spec version` diyorsa CLI'nız zincirden eski kalmıştır:
 [bu düzeltmeyi](#unsupported-runtime-spec-version-1014014) uygulayın.
 
@@ -914,6 +928,12 @@ NVIDIA Container Toolkit kurulu değil. 6. adımı uygulayın.
 
 İndirme sırasında geçici bir bağlantı hatası oldu. Aynı komutu tekrar çalıştırın. Mesajda
 `Unsupported runtime spec version` yazıyorsa bu bölümdeki ilk düzeltmeyi uygulayın.
+
+### `MODEL_VERIFICATION_FAILED` ve `no mirror reproduced registered root`
+
+CLI modeli Hugging Face'te buldu ama belirli bir revizyon verilmeden indirmiyor. Aynı komutu
+tekrar çalıştırmak işe yaramaz. Komuta 11. adımdaki gibi
+`--revision` ekleyin.
 
 ### Worker logunda `Signer:` satırında başka bir adres var
 
